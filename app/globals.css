@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------
+   Design tokens — mirrors the "Primitives" variable collection
+   in the PixelForge AI Figma file.
+---------------------------------------------------------------- */
+:root {
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --bg-primary: #fafafa;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f3f4f6;
+  --bg-dark: #111111;
+  --bg-dark-2: #1a1a1a;
+  --bg-dark-3: #242424;
+
+  --accent-primary: #6366f1;
+  --accent-secondary: #8b5cf6;
+  --accent-soft: #eef2ff;
+  --accent-hover: #4f52e0;
+
+  --success: #22c55e;
+  --success-soft: #ecfdf5;
+  --success-text: #15803d;
+  --warning: #f59e0b;
+  --warning-soft: #fffbeb;
+  --warning-text: #b45309;
+  --error: #ef4444;
+  --error-soft: #fef2f2;
+  --error-text: #b91c1c;
+
+  --border-default: #e5e7eb;
+  --border-strong: #d1d5db;
+  --border-dark: #2a2a2a;
+
+  --text-primary: #111111;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
+  --text-inverse: #ffffff;
+  --text-on-dark-muted: #9ca3af;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-bg text-content font-sans text-body antialiased;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-bg-surface;
+  }
+  ::selection {
+    background: var(--accent-soft);
+  }
+}
+
+@layer components {
+  /* Skeleton shimmer used by loading states */
+  .skeleton {
+    background: linear-gradient(90deg, var(--bg-subtle) 25%, #e9ebef 50%, var(--bg-subtle) 75%);
+    background-size: 200% 100%;
+    @apply animate-shimmer rounded-sm;
+  }
+  /* Dotted canvas used behind Figma-design surfaces */
+  .canvas-dots {
+    background-color: #f0f0f0;
+    background-image: radial-gradient(#d6d6d6 1px, transparent 1px);
+    background-size: 16px 16px;
+  }
+  /* Faint grid used behind the marketing hero */
+  .hero-grid {
+    background-image: linear-gradient(var(--border-default) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border-default) 1px, transparent 1px);
+    background-size: 80px 80px;
+    -webkit-mask-image: radial-gradient(ellipse at 50% 0%, #000 30%, transparent 75%);
+    mask-image: radial-gradient(ellipse at 50% 0%, #000 30%, transparent 75%);
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

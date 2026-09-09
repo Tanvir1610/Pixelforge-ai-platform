@@ -1,0 +1,74 @@
+import * as React from "react";
+import { Badge } from "@/components/ui/badge";
+import { MiniSite, ScaledSite } from "@/components/preview/mini-site";
+import { Logo } from "./logo";
+
+/** Split auth shell. The showcase panel is hidden below lg so the form owns the viewport. */
+export function AuthLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="grid min-h-screen lg:grid-cols-[1fr_560px]">
+      <div className="relative hidden flex-col justify-between overflow-hidden bg-bg-dark p-12 text-white lg:flex">
+        <div aria-hidden className="absolute -bottom-52 -right-52 h-[600px] w-[600px] bg-[radial-gradient(circle,rgba(99,102,241,.35),transparent_65%)]" />
+        <Logo inverse className="relative" />
+
+        <div className="absolute inset-x-12 top-48 bottom-32 -right-32 overflow-hidden rounded-lg border border-[#2E2E2E] bg-bg-dark-2 shadow-lg">
+          <div className="flex h-11 items-center justify-between border-b border-[#2E2E2E] px-4">
+            <span className="text-caption text-content-on-dark">Home / page.tsx</span>
+            <Badge tone="success" dot>97% match</Badge>
+          </div>
+          <div className="p-5">
+            <ScaledSite scale={1.4} height={340} className="rounded-md">
+              <MiniSite brand="Northwind" headline="Ship your ideas without the rebuild." />
+            </ScaledSite>
+          </div>
+        </div>
+
+        <blockquote className="relative">
+          <p className="max-w-[22ch] font-display text-[28px] font-bold leading-[1.25] tracking-[-0.02em]">
+            Six screens, one afternoon, no hand-off meeting.
+          </p>
+          <footer className="mt-3 text-body-sm text-content-on-dark">
+            Priya Raman · Design lead, Basalt Studio
+          </footer>
+        </blockquote>
+      </div>
+
+      <div className="flex items-center justify-center bg-bg px-5 py-12 md:px-12">
+        <main id="main" className="flex w-full max-w-[400px] flex-col gap-5">{children}</main>
+      </div>
+    </div>
+  );
+}
+
+export function OauthButtons() {
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-2.5">
+        <button
+          type="button"
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-bg-surface text-body font-medium shadow-sm hover:bg-bg-subtle"
+        >
+          <svg aria-hidden viewBox="0 0 24 24" className="h-4 w-4">
+            <path fill="#4285F4" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.9h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.4z" />
+            <path fill="#34A853" d="M12 22c2.7 0 5-.9 6.6-2.4l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z" />
+            <path fill="#FBBC05" d="M6.4 14a6 6 0 0 1 0-3.8V7.5H3.1a10 10 0 0 0 0 9l3.3-2.5z" />
+            <path fill="#EA4335" d="M12 6c1.5 0 2.8.5 3.8 1.5l2.8-2.8A10 10 0 0 0 3.1 7.5L6.4 10C7.2 7.8 9.4 6 12 6z" />
+          </svg>
+          Google
+        </button>
+        <button
+          type="button"
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-bg-surface text-body font-medium shadow-sm hover:bg-bg-subtle"
+        >
+          <svg aria-hidden viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+            <path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.8c-2.8.6-3.4-1.2-3.4-1.2-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.7-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.5 9.5 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 12 2z" />
+          </svg>
+          GitHub
+        </button>
+      </div>
+      <div className="flex items-center gap-3 text-caption text-content-muted before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
+        or
+      </div>
+    </>
+  );
+}

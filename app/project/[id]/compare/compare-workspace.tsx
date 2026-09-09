@@ -1,0 +1,167 @@
+"use client";
+
+import * as React from "react";
+import { Download, Wand2 } from "lucide-react";
+import { WorkspaceShell } from "@/components/layout/workspace-shell";
+import { AiGlyph } from "@/components/ui/ai-glyph";
+import { Badge } from "@/components/ui/badge";
+import { Banner } from "@/components/ui/banner";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { Segmented } from "@/components/ui/segmented";
+import { MiniSite, ScaledSite } from "@/components/preview/mini-site";
+import { MATCH_METRICS, VISUAL_DIFFERENCES } from "@/lib/data";
+import { cn } from "@/lib/utils";
+import type { Project } from "@/types";
+
+type Mode = "side" | "overlay" | "difference";
+
+const OVERLAYS = [
+  { id: "o1", label: "Padding 88 → 96px", top: "70px", height: "150px" },
+  { id: "o2", label: "Gap 20 → 24px", top: "250px", height: "90px" },
+];
+
+/**
+ * The differentiator screen: one headline score, five sub-scores and a list of
+ * concrete differences that can be fixed in a single action.
+ */
+export function CompareWorkspace({ project }: { project: Project }) {
+  const [mode, setMode] = React.useState<Mode>("side");
+  const [fixed, setFixed] = React.useState(false);
+  const [fixing, setFixing] = React.useState(false);
+
+  const score = fixed ? 99 : (project.matchScore ?? 97);
+  const metrics = fixed ? MATCH_METRICS.map((m) => ({ ...m, value: Math.min(100, m.value + 3) })) : MATCH_METRICS;
+  const differences = fixed ? [] : VISUAL_DIFFERENCES;
+
+  function fixDifferences() {
+    setFixing(true);
+    window.setTimeout(() => {
+      setFixing(false);
+      setFixed(true);
+    }, 1400);
+  }
+
+  return (
+    <WorkspaceShell project={project} status={<Badge>Home</Badge>}>
+      <div className="grid h-full min-h-0 lg:grid-cols-[1fr_300px_1fr]">
+        <section aria-label="Original Figma design" className="canvas-dots order-2 hidden min-h-0 flex-col gap-3 p-6 lg:order-none lg:flex">
+          <h2 className="flex items-center justify-between text-body-sm font-semibold">
+            Original Figma
+            <Badge>Home / Desktop 1440</Badge>
+          </h2>
+          <div className="min-h-0 flex-1 overflow-hidden rounded-[10px] border border-border bg-bg-surface shadow-md">
+            <ScaledSite scale={2} height={560}>
+              <MiniSite brand={project.brand} headline={project.headline} dark={project.theme === "dark"} />
+            </ScaledSite>
+          </div>
+        </section>
+
+        <aside className="order-1 flex min-h-0 flex-col items-center gap-2 overflow-y-auto border-border bg-bg-surface p-6 scrollbar-thin lg:order-none lg:border-x">
+          <div className="flex w-full items-center justify-between gap-2">
+            <span className="flex items-center gap-2 text-body font-semibold">
+              <AiGlyph size="lg" />
+              Visual match
+            </span>
+            <Segmented
+              label="Comparison mode"
+              size="sm"
+              value={mode}
+              onChange={setMode}
+              options={[
+                { value: "side", label: "Side" },
+                { value: "overlay", label: "Overlay" },
+                { value: "difference", label: "Diff" },
+              ]}
+            />
+          </div>
+
+          <div
+            className="relative my-2 grid h-40 w-40 place-items-center rounded-full transition-all duration-700"
+            style={{ background: `conic-gradient(var(--accent-primary) ${score}%, var(--bg-subtle) 0)` }}
+            role="img"
+            aria-label={`${score} percent visual match`}
+          >
+            <span aria-hidden className="absolute inset-3 rounded-full bg-bg-surface" />
+            <span className="relative text-center">
+              <b className="font-display text-[40px] font-bold leading-none tracking-[-0.03em]">{score}%</b>
+              <span className="mt-0.5 block text-caption font-medium text-content-muted">
+                {differences.length === 0 ? "No differences" : `${differences.length} differences`}
+              </span>
+            </span>
+          </div>
+
+          <ul className="mt-3 flex w-full flex-col gap-3">
+            {metrics.map((metric) => (
+              <li key={metric.label}>
+                <div className="mb-1.5 flex items-center justify-between text-body-sm">
+                  <span>{metric.label}</span>
+                  <b className="font-mono text-caption font-medium">{metric.value}%</b>
+                </div>
+                <Progress
+                  value={metric.value}
+                  label={`${metric.label} match`}
+                  barClassName={metric.value < 96 ? "bg-warning" : "bg-bg-dark"}
+                />
+              </li>
+            ))}
+          </ul>
+
+          {differences.length > 0 ? (
+            <ul className="mt-3.5 w-full overflow-hidden rounded-[10px] border border-border text-body-sm">
+              {differences.map((difference) => (
+                <li key={difference.id} className="flex items-center gap-2 border-b border-border px-3 py-2.5 last:border-b-0">
+                  <span
+                    aria-hidden
+                    className={cn("h-2 w-2 shrink-0 rounded-full", difference.severity === "high" ? "bg-error" : "bg-warning")}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{difference.label}</span>
+                  <span className="font-mono text-[11px] text-content-muted">{difference.detail}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <Banner tone="success" className="mt-3.5 w-full">
+              All differences fixed. Visual match went from {project.matchScore ?? 97}% to 99%.
+            </Banner>
+          )}
+
+          <div className="mt-4 flex w-full flex-col gap-1.5">
+            <Button variant="primary" onClick={fixDifferences} loading={fixing} disabled={differences.length === 0}>
+              <Wand2 />
+              Fix differences
+            </Button>
+            <Button variant="ghost" size="sm">
+              <Download />
+              Export comparison report
+            </Button>
+          </div>
+        </aside>
+
+        <section aria-label="Generated website" className="order-3 flex min-h-0 flex-col gap-3 bg-bg-subtle p-6 lg:order-none">
+          <h2 className="flex items-center justify-between text-body-sm font-semibold">
+            Generated website
+            <Badge tone="success" dot>Live preview</Badge>
+          </h2>
+          <div className="relative min-h-0 flex-1 overflow-hidden rounded-[10px] border border-border bg-bg-surface shadow-md">
+            <ScaledSite scale={2} height={560}>
+              <MiniSite brand={project.brand} headline={project.headline} dark={project.theme === "dark"} />
+            </ScaledSite>
+            {!fixed &&
+              OVERLAYS.map((overlay) => (
+                <div
+                  key={overlay.id}
+                  className="pointer-events-none absolute inset-x-6 rounded-[4px] border-[1.5px] border-dashed border-error bg-error/5"
+                  style={{ top: overlay.top, height: overlay.height }}
+                >
+                  <span className="absolute -top-5 left-0 whitespace-nowrap rounded-[4px] bg-error px-1.5 py-0.5 text-[10px] text-white">
+                    {overlay.label}
+                  </span>
+                </div>
+              ))}
+          </div>
+        </section>
+      </div>
+    </WorkspaceShell>
+  );
+}
