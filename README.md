@@ -42,6 +42,7 @@ three hosts behind one interface.
 | Deployment | Implemented — Vercel, Netlify, Cloudflare behind one interface |
 | Domains, rollback, host OAuth | Implemented — verification, additive rollback, single-use state |
 | Host clients | Written and unit-tested; **not run against live APIs** |
+| Payments (Razorpay) | Implemented — signed webhooks, idempotent, derived entitlements |
 | Evaluation, training data, own models | Not started (Phases 8–10) |
 
 Screens for the unbuilt phases exist and render fixed sample data. They are the
@@ -93,6 +94,7 @@ Supabase (Postgres, Auth, Storage, RLS, pgvector) · Zod · Vitest
 | [PHASE5_SANDBOX](docs/PHASE5_SANDBOX.md) | Generation, sandbox isolation, repair loop |
 | [PHASE6_VISUAL_QA](docs/PHASE6_VISUAL_QA.md) | Geometry vs pixel comparison, scoring |
 | [PHASE7_DEPLOYMENT](docs/PHASE7_DEPLOYMENT.md) | Host providers, the build gate, polling |
+| [PAYMENTS](docs/PAYMENTS.md) | Razorpay, webhook trust model, money handling |
 | [AI_ARCHITECTURE](docs/AI_ARCHITECTURE.md) | Pipeline, agents, persistence |
 | [MODEL_PROVIDER](docs/MODEL_PROVIDER.md) | Abstraction and path to own models |
 | [EVALUATION](docs/EVALUATION.md) | Metrics and method |
