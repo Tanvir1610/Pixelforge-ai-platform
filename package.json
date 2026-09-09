@@ -1,0 +1,42 @@
+{
+  "name": "pixelforge-ai",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:verify": "bash scripts/verify-db.sh",
+    "check:supabase": "node scripts/check-supabase.mjs",
+    "db:push": "supabase db push",
+    "db:types": "supabase gen types typescript --linked > lib/db/database.types.ts"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.6",
+    "@supabase/supabase-js": "^2.115.0",
+    "clsx": "2.1.1",
+    "lucide-react": "0.469.0",
+    "next": "^16.3.4",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "tailwind-merge": "2.6.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.7",
+    "@types/react": "19.0.7",
+    "@types/react-dom": "19.0.3",
+    "@vitest/coverage-v8": "^2.1.9",
+    "autoprefixer": "10.4.20",
+    "eslint": "9.18.0",
+    "eslint-config-next": "16.3.4",
+    "postcss": "8.5.1",
+    "tailwindcss": "3.4.17",
+    "typescript": "5.7.3",
+    "vitest": "^2.1.9"
+  }
+}
