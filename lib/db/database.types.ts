@@ -536,6 +536,74 @@ export type OauthStateRow = {
   created_at: string;
 };
 
+
+// --- Payments ----------------------------------------------------------------
+
+export type PaymentStatusKey =
+  | "created" | "authorized" | "captured" | "failed" | "refunded" | "partially_refunded";
+
+export type BillingPlanRow = {
+  key: "free" | "pro" | "team";
+  display_name: string;
+  amount_minor: number;
+  currency: string;
+  interval: "monthly" | "yearly";
+  ai_credits: number;
+  max_projects: number | null;
+  provider_plan_id: string | null;
+  active: boolean;
+  created_at: string;
+};
+
+export type PaymentCustomerRow = {
+  id: string;
+  organization_id: string;
+  provider: string;
+  provider_customer_id: string;
+  email: string | null;
+  created_at: string;
+};
+
+export type PaymentOrderRow = {
+  id: string;
+  organization_id: string;
+  plan_key: string;
+  provider: string;
+  provider_order_id: string;
+  amount_minor: number;
+  currency: string;
+  status: PaymentStatusKey;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type PaymentRow = {
+  id: string;
+  organization_id: string;
+  order_id: string | null;
+  provider: string;
+  provider_payment_id: string;
+  amount_minor: number;
+  amount_refunded_minor: number;
+  currency: string;
+  status: PaymentStatusKey;
+  method: string | null;
+  failure_reason: string | null;
+  captured_at: string | null;
+  created_at: string;
+};
+
+export type PaymentWebhookEventRow = {
+  provider_event_id: string;
+  provider: string;
+  event_type: string;
+  organization_id: string | null;
+  payload: Json;
+  processed_at: string | null;
+  error_message: string | null;
+  received_at: string;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -731,6 +799,41 @@ export type Database = {
         Update: Partial<OauthStateRow>;
         Relationships: [];
       };
+      billing_plans: {
+        Row: BillingPlanRow;
+        Insert: Pick<BillingPlanRow, "key" | "display_name" | "amount_minor" | "ai_credits"> &
+          Partial<BillingPlanRow>;
+        Update: Partial<BillingPlanRow>;
+        Relationships: [];
+      };
+      payment_customers: {
+        Row: PaymentCustomerRow;
+        Insert: Pick<PaymentCustomerRow, "organization_id" | "provider_customer_id"> &
+          Partial<PaymentCustomerRow>;
+        Update: Partial<PaymentCustomerRow>;
+        Relationships: [];
+      };
+      payment_orders: {
+        Row: PaymentOrderRow;
+        Insert: Pick<PaymentOrderRow, "organization_id" | "plan_key" | "provider_order_id" | "amount_minor"> &
+          Partial<PaymentOrderRow>;
+        Update: Partial<PaymentOrderRow>;
+        Relationships: [];
+      };
+      payments: {
+        Row: PaymentRow;
+        Insert: Pick<PaymentRow, "organization_id" | "provider_payment_id" | "amount_minor" | "status"> &
+          Partial<PaymentRow>;
+        Update: Partial<PaymentRow>;
+        Relationships: [];
+      };
+      payment_webhook_events: {
+        Row: PaymentWebhookEventRow;
+        Insert: Pick<PaymentWebhookEventRow, "provider_event_id" | "event_type" | "payload"> &
+          Partial<PaymentWebhookEventRow>;
+        Update: Partial<PaymentWebhookEventRow>;
+        Relationships: [];
+      };
       audit_logs: {
         Row: AuditLogRow;
         Insert: Pick<AuditLogRow, "action" | "resource_type"> & Partial<AuditLogRow>;
@@ -844,6 +947,26 @@ export type Database = {
       consume_oauth_state: {
         Args: { p_state: string };
         Returns: { organization_id: string; user_id: string; provider: string; redirect_path: string }[];
+      };
+      apply_subscription: {
+        Args: {
+          p_organization_id: string; p_plan_key: string; p_status: string;
+          p_provider_subscription_id?: string | null;
+          p_period_start?: string | null; p_period_end?: string | null;
+          p_payment_id?: string | null;
+        };
+        Returns: undefined;
+      };
+      claim_webhook_event: {
+        Args: {
+          p_provider_event_id: string; p_event_type: string;
+          p_payload: Json; p_organization_id?: string | null;
+        };
+        Returns: boolean;
+      };
+      complete_webhook_event: {
+        Args: { p_provider_event_id: string; p_error?: string | null };
+        Returns: undefined;
       };
       record_usage: {
         Args: {
