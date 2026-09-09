@@ -9,10 +9,12 @@ providers behind an abstraction.
 
 ## Status
 
-Phases 1–4 of 10 are complete: repository, Supabase, authentication,
+Phases 1–7 of 10 are complete: repository, Supabase, authentication,
 database, multi-tenancy, project system, dashboard, Figma ingestion producing a
 real Design IR, AI orchestration behind a provider abstraction, and the
-planning, tool and versioning layers code generation will run on.
+planning, tool and versioning layers, code generation with a sandboxed build,
+visual comparison producing scored, fixable differences, and deployment to
+three hosts behind one interface.
 
 | Subsystem | State |
 | --- | --- |
@@ -32,7 +34,15 @@ planning, tool and versioning layers code generation will run on.
 | Architecture + component planners | Implemented — settings enforced over the model |
 | AI tool system | Implemented — mode-gated, schema-validated, fully audited |
 | Code versioning | Implemented — immutable snapshots, additive restore |
-| Code generator + sandbox → deployment | Not started (Phases 5–7) |
+| Code generator | Implemented — stepwise, one version per generation |
+| Sandbox + build pipeline | Implemented — env-scrubbed, tested with real processes |
+| Build error parsing + repair loop | Implemented — bounded, phase-ordered |
+| Visual comparison | Implemented — geometry + pixel, scored and fixable |
+| Browser capture | Written, **untested** — no browser available here |
+| Deployment | Implemented — Vercel, Netlify, Cloudflare behind one interface |
+| Domains, rollback, host OAuth | Implemented — verification, additive rollback, single-use state |
+| Host clients | Written and unit-tested; **not run against live APIs** |
+| Evaluation, training data, own models | Not started (Phases 8–10) |
 
 Screens for the unbuilt phases exist and render fixed sample data. They are the
 target the pipelines are built against, not a claim that the pipelines work.
@@ -80,6 +90,9 @@ Supabase (Postgres, Auth, Storage, RLS, pgvector) · Zod · Vitest
 | [FIGMA_INGESTION](docs/FIGMA_INGESTION.md) | Phase 2 pipeline, in detail |
 | [PHASE3_ORCHESTRATION](docs/PHASE3_ORCHESTRATION.md) | Agents, context budgeting, accounting |
 | [PHASE4_CODEGEN](docs/PHASE4_CODEGEN.md) | Planners, tool system, versioning |
+| [PHASE5_SANDBOX](docs/PHASE5_SANDBOX.md) | Generation, sandbox isolation, repair loop |
+| [PHASE6_VISUAL_QA](docs/PHASE6_VISUAL_QA.md) | Geometry vs pixel comparison, scoring |
+| [PHASE7_DEPLOYMENT](docs/PHASE7_DEPLOYMENT.md) | Host providers, the build gate, polling |
 | [AI_ARCHITECTURE](docs/AI_ARCHITECTURE.md) | Pipeline, agents, persistence |
 | [MODEL_PROVIDER](docs/MODEL_PROVIDER.md) | Abstraction and path to own models |
 | [EVALUATION](docs/EVALUATION.md) | Metrics and method |
@@ -102,6 +115,6 @@ keep it out of source control and out of chat.
 
 ## Next milestone
 
-Phase 5: the Code Generator agent loop plus the sandbox — write files per
-build-order step through the tool system, then install, typecheck and build the
-result in an isolated environment.
+Phase 8: evaluation and observability — a frozen corpus, scored runs attributed
+to model and provider, and the cost/quality dashboard that decides whether a
+model swap is an improvement.
