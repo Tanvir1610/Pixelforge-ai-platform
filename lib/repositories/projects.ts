@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { ProjectRow } from "@/lib/db/database.types";
 import { DEMO_PROJECTS } from "@/lib/demo";
@@ -89,7 +90,14 @@ export async function createProject(session: Session, input: CreateProjectInput)
   return data;
 }
 
-export async function getProjectStats(session: Session): Promise<ProjectStats> {
+/**
+ * Workspace totals.
+ *
+ * `cache` dedupes it across a render pass: the dashboard page and the sidebar
+ * both need these figures, and without it they would issue the same two queries
+ * twice — and could disagree if a write landed between them.
+ */
+export const getProjectStats = cache(async (session: Session): Promise<ProjectStats> => {
   const limit = session.organization.ai_credits_limit;
 
   if (session.demo) {
@@ -130,4 +138,4 @@ export async function getProjectStats(session: Session): Promise<ProjectStats> {
     aiCreditsUsed: Math.round(totals.ai_credits ?? 0),
     aiCreditsLimit: limit,
   };
-}
+});

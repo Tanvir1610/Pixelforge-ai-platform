@@ -1,17 +1,26 @@
 import * as React from "react";
+import { getShellData } from "@/lib/presenters/shell";
 import { Sidebar } from "./sidebar";
 import { MobileTabBar } from "./mobile-tabbar";
 import { Topbar } from "./topbar";
 
-/** Dashboard chrome. Pages supply only their own content. */
-export function AppShell({ crumbs, actions, children }: {
+/**
+ * Dashboard chrome. Pages supply only their own content.
+ *
+ * Async because the sidebar and topbar render the signed-in user's workspace,
+ * plan and credit balance. `getShellData` is cached for the render pass, so the
+ * page's own call for the same figures is not a second round trip.
+ */
+export async function AppShell({ crumbs, actions, children }: {
   crumbs: string[]; actions?: React.ReactNode; children: React.ReactNode;
 }) {
+  const shell = await getShellData();
+
   return (
     <div className="flex min-h-screen">
-      <Sidebar />
+      {shell && <Sidebar shell={shell} />}
       <div className="flex min-w-0 flex-1 flex-col pb-16 md:pb-0">
-        <Topbar crumbs={crumbs} actions={actions} />
+        <Topbar crumbs={crumbs} actions={actions} initials={shell?.initials ?? "?"} />
         <main className="flex-1 px-5 py-6 md:px-8 md:py-8">{children}</main>
       </div>
       <MobileTabBar />

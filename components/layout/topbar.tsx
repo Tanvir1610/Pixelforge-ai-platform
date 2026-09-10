@@ -6,7 +6,9 @@ import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export function Topbar({ crumbs, actions }: { crumbs: string[]; actions?: React.ReactNode }) {
+export function Topbar({ crumbs, actions, initials }: {
+  crumbs: string[]; actions?: React.ReactNode; initials: string;
+}) {
   return (
     <div className="sticky top-0 z-dropdown flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-bg/90 px-5 backdrop-blur md:px-8">
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-body-sm text-content-muted">
@@ -31,7 +33,7 @@ export function Topbar({ crumbs, actions }: { crumbs: string[]; actions?: React.
         <Button variant="secondary" size="icon" aria-label="Notifications" className="hidden md:inline-flex">
           <Bell />
         </Button>
-        <Avatar initials="TA" />
+        <Avatar initials={initials} />
       </div>
     </div>
   );

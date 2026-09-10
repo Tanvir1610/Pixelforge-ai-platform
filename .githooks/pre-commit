@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Refuses a commit that would put a value into .env.example.
+#
+# The file is committed and the repository is public. It has already carried a
+# service-role key into the history, and values keep reappearing in it because
+# it looks like the natural place to write configuration.
+#
+# Enable with:  git config core.hooksPath .githooks
+set -euo pipefail
+
+staged=$(git diff --cached --name-only)
+echo "$staged" | grep -qx ".env.example" || exit 0
+
+populated=$(git show ":.env.example" | grep -nE "^[A-Z][A-Z0-9_]*=.+$" || true)
+[ -z "$populated" ] && exit 0
+
+echo "commit refused: .env.example has values in it" >&2
+echo "$populated" | sed 's/^/  /' >&2
+cat >&2 <<'EOF'
+
+This file is committed to a public repository. Real values belong in
+.env.local, which is ignored, and in the host's environment settings.
+
+Anything secret that reaches a commit must be rotated — removing the line
+later does not remove it from the history.
+EOF
+exit 1
