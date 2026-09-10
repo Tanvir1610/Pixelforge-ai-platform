@@ -7,10 +7,15 @@ import { Link2, Lock, Upload } from "lucide-react";
 import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { connectFigmaAction, importFigmaFileAction, type ImportState } from "@/lib/actions/import";
+import {
+  connectFigmaAction, importFigmaFileAction, importImageAction, type ImportState,
+} from "@/lib/actions/import";
 import { cn } from "@/lib/utils";
 
-const SUPPORTED = [".fig", ".png", ".jpg", ".svg"];
+// .fig is not here. Figma's format is proprietary and undocumented, so there is
+// no parser to write against; listing it and failing quietly was worse than
+// saying so, which the action does if one is dropped anyway.
+const SUPPORTED = [".png", ".jpg", ".webp", ".svg"];
 
 /** Reasons the Figma callback can send someone back here. */
 const CONNECT_ERRORS: Record<string, string> = {
@@ -35,6 +40,8 @@ export function ImportOptions({
 }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(importFigmaFileAction, INITIAL);
+  const [uploadState, uploadAction, uploading] = useActionState(importImageAction, INITIAL);
+  const uploadForm = React.useRef<HTMLFormElement>(null);
   const [dragging, setDragging] = React.useState(false);
   const fileInput = React.useRef<HTMLInputElement>(null);
 
@@ -42,6 +49,14 @@ export function ImportOptions({
   React.useEffect(() => {
     if (state.runId) router.push(`/dashboard/analysis?run=${state.runId}`);
   }, [state.runId, router]);
+
+  // An upload produces a run of its own; the analysis screen subscribes to it
+  // the same way. Only navigate on success — a failure has a message to read.
+  React.useEffect(() => {
+    if (uploadState.runId && !uploadState.message?.includes("could not")) {
+      router.push(`/dashboard/analysis?run=${uploadState.runId}`);
+    }
+  }, [uploadState.runId, uploadState.message, router]);
 
   const blocked = demo || !projectId;
 
@@ -114,7 +129,9 @@ export function ImportOptions({
         )}
       </form>
 
-      <div
+      <form
+        ref={uploadForm}
+        action={uploadAction}
         onDragOver={(event) => {
           event.preventDefault();
           setDragging(true);
@@ -123,24 +140,56 @@ export function ImportOptions({
         onDrop={(event) => {
           event.preventDefault();
           setDragging(false);
+          // Dropped files are put into the real input, so drop and browse take
+          // exactly the same path rather than two that can diverge.
+          const dropped = event.dataTransfer.files;
+          if (dropped.length && fileInput.current) {
+            fileInput.current.files = dropped;
+            uploadForm.current?.requestSubmit();
+          }
         }}
         className={cn(
           "rounded-[14px] border-[1.5px] border-dashed bg-bg-surface p-8 text-center transition-colors md:p-11",
           dragging ? "border-accent bg-accent-soft" : "border-border-strong",
         )}
       >
+        <input type="hidden" name="projectId" value={projectId ?? ""} />
         <span className="mx-auto mb-3.5 grid h-12 w-12 place-items-center rounded-lg bg-bg-subtle">
           <Upload aria-hidden className="h-[22px] w-[22px]" />
         </span>
-        <h2 className="text-[15px] font-semibold">Drop screenshots, assets or design files here</h2>
+        <h2 className="text-[15px] font-semibold">Drop a screenshot here</h2>
         <p className="mt-1 text-body-sm text-content-muted">
           Or{" "}
-          <button type="button" onClick={() => fileInput.current?.click()} className="font-medium text-accent underline-offset-4 hover:underline">
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            disabled={blocked || uploading}
+            className="font-medium text-accent underline-offset-4 hover:underline disabled:text-content-muted disabled:no-underline"
+          >
             browse your files
           </button>
-          . Image import is not implemented yet — use a Figma URL for now.
+          . A screenshot is read by a vision model, so it gives a rougher result than a Figma URL — every
+          layer it finds is flagged for review.
         </p>
-        <input ref={fileInput} type="file" multiple accept=".fig,.png,.jpg,.jpeg,.svg" className="sr-only" />
+        <input
+          ref={fileInput}
+          name="file"
+          type="file"
+          accept=".png,.jpg,.jpeg,.webp,.svg"
+          disabled={blocked || uploading}
+          onChange={(event) => {
+            if (event.target.files?.length) uploadForm.current?.requestSubmit();
+          }}
+          className="sr-only"
+        />
+        {uploading && (
+          <p className="mt-3 text-body-sm text-content-muted">
+            Reading the screenshot — this takes a few seconds.
+          </p>
+        )}
+        {uploadState.message && (
+          <p className="mt-3 text-body-sm text-content-secondary">{uploadState.message}</p>
+        )}
         <ul className="mt-4 flex justify-center gap-1.5">
           {SUPPORTED.map((type) => (
             <li key={type} className="rounded-[5px] border border-border bg-bg px-2 py-0.5 font-mono text-[11px] text-content-secondary">
@@ -148,7 +197,7 @@ export function ImportOptions({
             </li>
           ))}
         </ul>
-      </div>
+      </form>
 
       <p className="mt-3 flex items-center justify-center gap-2 text-body-sm text-content-muted">
         <Lock aria-hidden className="h-3.5 w-3.5" />

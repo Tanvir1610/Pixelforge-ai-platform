@@ -9,6 +9,9 @@ import { startAnalysisRun } from "@/lib/repositories/generation";
 import { ingestFigmaFile } from "@/lib/figma/ingest";
 import { parseFigmaUrl } from "@/lib/figma/url";
 import { beginFigmaConnect, isFigmaOauthConfigured } from "@/lib/figma/oauth";
+import { classifyUpload, ingestImage, storeUpload, UNSUPPORTED_MESSAGE } from "@/lib/figma/image-ingest";
+import { isInferenceConfigured } from "@/lib/ai/bootstrap";
+import { markRun, markStep } from "@/lib/repositories/generation";
 import { fieldErrors, figmaUrlSchema } from "@/lib/validation/schemas";
 import { z } from "zod";
 
@@ -168,3 +171,92 @@ async function connectOrigin(): Promise<string> {
   const protocol = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
   return `${protocol}://${host}`;
 }
+
+/**
+ * Importing an uploaded screenshot.
+ *
+ * The drop zone listed four extensions and its file input had no handler at
+ * all, so every one of them did nothing. A screenshot has no layer tree, so
+ * this is a vision inference rather than a read — weaker than the Figma URL
+ * path by nature, and recorded as such on every node it produces.
+ */
+export async function importImageAction(_prev: ImportState, formData: FormData): Promise<ImportState> {
+  const file = formData.get("file");
+  const projectId = formData.get("projectId");
+
+  if (!(file instanceof File) || file.size === 0) {
+    return { message: "Choose an image to import." };
+  }
+  if (typeof projectId !== "string" || !projectId) {
+    return { message: "Create a project first — an import has to land somewhere." };
+  }
+
+  const kind = classifyUpload(file.name);
+  if (kind === "unsupported") {
+    return { message: UNSUPPORTED_MESSAGE };
+  }
+
+  try {
+    const session = await requireOrgRole("developer");
+
+    // Opened through the RLS-scoped client, so this is also the check that the
+    // caller may touch this project at all.
+    const runId = await startAnalysisRun(projectId, "import", IMAGE_IMPORT_STEPS);
+
+    const bytes = await file.arrayBuffer();
+
+    await markStep(runId, "upload", "running");
+    const stored = await storeUpload({ projectId, filename: file.name, bytes });
+    await markStep(runId, "upload", "completed", `${Math.round(stored.bytes / 1024)} KB`);
+
+    // An SVG is kept as an asset and nothing more. Reading structure out of one
+    // is a parser this does not have, and guessing at it with vision would be
+    // worse than the file already is.
+    if (kind === "vector") {
+      await markStep(runId, "interpret", "cancelled", "SVG is stored as an asset, not interpreted");
+      await markRun(runId, "completed");
+      revalidatePath("/dashboard/assets");
+      return {
+        runId,
+        message: `${file.name} was saved to your assets. SVG isn't converted to a layout yet — use a Figma URL or a screenshot for that.`,
+      };
+    }
+
+    if (!isInferenceConfigured()) {
+      await markStep(runId, "interpret", "failed", "No model provider configured");
+      await markRun(runId, "failed", { code: "not_configured", message: "No AI provider configured." });
+      return {
+        runId,
+        message: "The image was saved, but reading a screenshot needs a vision model. Set ANTHROPIC_API_KEY.",
+      };
+    }
+
+    await markStep(runId, "interpret", "running");
+    const result = await ingestImage({ projectId, image: stored, bytes });
+    await markStep(runId, "interpret", "completed", `${result.nodesWritten} layers`);
+
+    await markStep(runId, "persist", "completed", result.frameName);
+    await markRun(runId, "completed");
+
+    const supabase = createServiceClient();
+    await supabase.from("projects").update({ status: "review" }).eq("id", projectId);
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/analysis");
+    revalidatePath("/dashboard/assets");
+
+    return { runId, message: `Imported ${result.nodesWritten} layers from ${file.name}.` };
+  } catch (error) {
+    console.error("[import:image]", error);
+    return {
+      message: error instanceof Error ? error.message : "That image could not be imported.",
+    };
+  }
+}
+
+/** Steps for an image import, which has no Figma file to walk. */
+const IMAGE_IMPORT_STEPS: [string, string][] = [
+  ["upload", "Storing the image"],
+  ["interpret", "Reading the layout"],
+  ["persist", "Building the component tree"],
+];
