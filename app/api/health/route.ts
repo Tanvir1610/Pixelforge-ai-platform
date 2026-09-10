@@ -124,6 +124,9 @@ export async function GET() {
       inference: {
         anthropicKey: describe(process.env.ANTHROPIC_API_KEY),
         openaiKey: describe(process.env.OPENAI_API_KEY),
+        // Only needed for an organization-scoped key, which the API rejects
+        // without it. A workspace-scoped key needs nothing here.
+        workspaceId: describe(process.env.ANTHROPIC_WORKSPACE_ID),
         usable: Boolean(process.env.ANTHROPIC_API_KEY),
       },
       // Presence only. No value is ever returned from here.

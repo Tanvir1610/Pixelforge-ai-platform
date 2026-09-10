@@ -8,7 +8,7 @@ function reply(body: unknown, status = 200) {
 const TEXT_REPLY = {
   content: [{ type: "text", text: "hello" }],
   stop_reason: "end_turn",
-  model: "claude-sonnet-4-5",
+  model: "claude-sonnet-5",
   usage: { input_tokens: 1200, output_tokens: 300 },
 };
 
@@ -54,7 +54,7 @@ describe("AnthropicProvider", () => {
 
   it("reports usage and cost from the returned token counts", async () => {
     const fetchImpl = vi.fn(async () => reply(TEXT_REPLY));
-    const provider = new AnthropicProvider({ apiKey: "k", model: "claude-sonnet-4-5", fetchImpl: fetchImpl as never });
+    const provider = new AnthropicProvider({ apiKey: "k", model: "claude-sonnet-5", fetchImpl: fetchImpl as never });
 
     const result = await provider.generate({
       purpose: "design_analysis",
@@ -63,8 +63,8 @@ describe("AnthropicProvider", () => {
 
     expect(result.usage.inputTokens).toBe(1200);
     expect(result.usage.outputTokens).toBe(300);
-    // 1200/1e6*3 + 300/1e6*15
-    expect(result.usage.costUsd).toBeCloseTo(0.0081, 6);
+    // Sonnet 5: 1200/1e6*2 + 300/1e6*10
+    expect(result.usage.costUsd).toBeCloseTo(0.0054, 6);
     expect(result.providerKey).toBe("anthropic");
   });
 
@@ -117,7 +117,7 @@ describe("AnthropicProvider", () => {
       reply({
         content: [{ type: "tool_use", name: "respond", input: { ok: true } }],
         stop_reason: "tool_use",
-        model: "claude-sonnet-4-5",
+        model: "claude-sonnet-5",
         usage: { input_tokens: 10, output_tokens: 5 },
       }),
     );

@@ -3,19 +3,19 @@ import { computeCost, estimateTokens, getModel, MODELS, PURPOSE_TIER, selectMode
 
 describe("model catalogue", () => {
   it("computes cost from the platform's own price table", () => {
-    const spec = getModel("claude-sonnet-4-5")!;
-    // 1M in at $3, 100k out at $15 → 3 + 1.5
-    expect(computeCost(spec, 1_000_000, 100_000)).toBeCloseTo(4.5, 6);
+    const spec = getModel("claude-sonnet-5")!;
+    // Sonnet 5: 1M in at $2, 100k out at $10 → 2 + 1
+    expect(computeCost(spec, 1_000_000, 100_000)).toBeCloseTo(3, 6);
   });
 
   it("rounds cost to the precision the ledger column stores", () => {
-    const spec = getModel("claude-haiku-4-5-20251001")!;
+    const spec = getModel("claude-haiku-4-5")!;
     const cost = computeCost(spec, 7, 3);
     expect(cost).toBe(Number(cost.toFixed(6)));
   });
 
   it("charges nothing for a call that used nothing", () => {
-    expect(computeCost(getModel("claude-opus-4-5")!, 0, 0)).toBe(0);
+    expect(computeCost(getModel("claude-opus-5")!, 0, 0)).toBe(0);
   });
 
   it("routes architecture planning to the frontier tier", () => {

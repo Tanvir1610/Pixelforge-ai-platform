@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { requireOrgRole } from "@/lib/auth/session";
 import { startAnalysisRun } from "@/lib/repositories/generation";
 import { runPlanningStage, PLANNING_STEPS } from "@/lib/ai/planning-stage";
+import { runAnalysisStage, ANALYSIS_STAGE_STEPS } from "@/lib/ai/orchestrator";
+import { getLatestArtifact } from "@/lib/repositories/artifacts";
+import type { DesignAnalysis } from "@/lib/ai/schemas";
 import { GENERATION_STEPS } from "@/lib/ai/generation-stage";
 import { generateStep, loadGenerationPlan, type StepOutcome } from "@/lib/ai/incremental-generation";
 import { isInferenceConfigured } from "@/lib/ai/bootstrap";
@@ -46,6 +49,29 @@ export async function planProjectAction(): Promise<PlanOutcome> {
   if (!project) return { ok: false, message: "Create a project and import a design first." };
   if (!isInferenceConfigured()) {
     return { ok: false, message: "No AI provider is configured. Set ANTHROPIC_API_KEY to generate code." };
+  }
+
+  // Planning consumes the design analysis rather than re-deriving it, so a
+  // project that has only been imported has nothing to plan from. Running it
+  // here rather than refusing: "run the analysis first" is a step the user
+  // gains nothing by performing by hand, and forgetting it was the difference
+  // between this button working and failing on its first call.
+  const analysis = await getLatestArtifact<DesignAnalysis>(project.id, "design_analysis");
+  if (!analysis) {
+    const analysisRunId = await startAnalysisRun(project.id, "manual", ANALYSIS_STAGE_STEPS);
+    const analysed = await runAnalysisStage({
+      organizationId: session.organization.id,
+      projectId: project.id,
+      runId: analysisRunId,
+    });
+
+    if (!analysed.ok) {
+      return {
+        ok: false,
+        runId: analysisRunId,
+        message: analysed.errorMessage ?? "The design analysis failed, so there is nothing to plan from.",
+      };
+    }
   }
 
   const runId = await startAnalysisRun(project.id, "manual", PLANNING_STEPS);

@@ -108,7 +108,9 @@ export function GenerateButton({ canGenerate }: { canGenerate: boolean }) {
       </Button>
 
       {phase.name === "planning" && (
-        <p className="text-body-sm text-content-muted">Planning the architecture and components…</p>
+        <p className="text-body-sm text-content-muted">
+          Reading the design, then planning the architecture and components…
+        </p>
       )}
 
       {phase.name === "generating" && (
@@ -130,7 +132,7 @@ export function GenerateButton({ canGenerate }: { canGenerate: boolean }) {
 
       {!canGenerate && phase.name === "idle" && (
         <p className="text-body-sm text-content-muted">
-          Import a design and run the analysis first — generation works from what that produced.
+          Import a design first — generation reads the layers that produced.
         </p>
       )}
     </div>

@@ -162,7 +162,7 @@ export default async function UnderstandingPage() {
 
       {/* The control that actually runs the pipeline. */}
       <div className="mb-6 max-w-[420px]">
-        <GenerateButton canGenerate={Boolean(project && analysis)} />
+        <GenerateButton canGenerate={Boolean(project && (summary?.nodeCount ?? 0) > 0)} />
       </div>
 
       <div className="grid gap-8 lg:grid-cols-[200px_1fr]">

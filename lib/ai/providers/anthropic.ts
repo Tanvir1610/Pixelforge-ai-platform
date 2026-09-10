@@ -34,6 +34,26 @@ export interface AnthropicOptions {
  * knows the vendor. Swapping in our own model later means registering a
  * different class, not changing any agent.
  */
+/**
+ * Request headers.
+ *
+ * An organization-scoped API key must name a workspace on every request:
+ * without the header the API rejects it with "This API key is not scoped to a
+ * workspace". A key that is already workspace-scoped needs nothing, so the
+ * header is sent only when configured — passing an empty one is itself an
+ * error.
+ */
+function headersFor(apiKey: string): Record<string, string> {
+  const workspaceId = process.env.ANTHROPIC_WORKSPACE_ID?.trim();
+
+  return {
+    "content-type": "application/json",
+    "x-api-key": apiKey,
+    "anthropic-version": VERSION,
+    ...(workspaceId ? { "anthropic-workspace-id": workspaceId } : {}),
+  };
+}
+
 export class AnthropicProvider extends BaseModelProvider {
   readonly key = "anthropic";
   readonly displayName = "Anthropic";
@@ -77,7 +97,7 @@ export class AnthropicProvider extends BaseModelProvider {
   private resolveModelKey(options: GenerateOptions): string {
     if (this.modelOverride) return this.modelOverride;
     const capability = options.schema ? "structured" : "generate";
-    return selectModel(options.purpose, capability)?.key ?? "claude-sonnet-4-5";
+    return selectModel(options.purpose, capability)?.key ?? "claude-sonnet-5";
   }
 
   private async call(options: GenerateOptions, extra: Record<string, unknown> = {}): Promise<{
@@ -91,15 +111,14 @@ export class AnthropicProvider extends BaseModelProvider {
 
     const response = await this.fetchImpl(API, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": this.apiKey,
-        "anthropic-version": VERSION,
-      },
+      headers: headersFor(this.apiKey),
       body: JSON.stringify({
         model: modelKey,
         max_tokens: Math.min(options.maxOutputTokens ?? 4096, spec?.maxOutputTokens ?? 8192),
-        temperature: options.temperature ?? 0,
+        // Only where the model still takes it. Sampling parameters were removed
+        // from the current generation and are rejected with a 400 rather than
+        // ignored, so sending one unconditionally failed every call.
+        ...(spec?.acceptsSampling ? { temperature: options.temperature ?? 0 } : {}),
         system: options.system,
         messages: this.toWireMessages(options.messages),
         ...extra,
@@ -108,7 +127,13 @@ export class AnthropicProvider extends BaseModelProvider {
     });
 
     if (!response.ok) {
-      // Provider error text is not user-facing; callers map codes to copy.
+      // The status alone is not enough to act on: a 400 is almost always a
+      // request the API rejected for a stated reason — an unknown model id, a
+      // parameter removed from this generation — and throwing only the code
+      // turned each of those into a debugging session. The body is logged, not
+      // returned: callers still map the code to user-facing copy.
+      const detail = await response.text().catch(() => "");
+      console.error(`[anthropic] ${response.status}`, detail.slice(0, 500));
       throw new Error(`anthropic_${response.status}`);
     }
 
@@ -180,17 +205,14 @@ export class AnthropicProvider extends BaseModelProvider {
     this.assertSupports("stream");
 
     const modelKey = this.resolveModelKey(options);
+    const spec = getModel(modelKey);
     const response = await this.fetchImpl(API, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": this.apiKey,
-        "anthropic-version": VERSION,
-      },
+      headers: headersFor(this.apiKey),
       body: JSON.stringify({
         model: modelKey,
         max_tokens: options.maxOutputTokens ?? 4096,
-        temperature: options.temperature ?? 0,
+        ...(spec?.acceptsSampling ? { temperature: options.temperature ?? 0 } : {}),
         system: options.system,
         messages: this.toWireMessages(options.messages),
         stream: true,
@@ -198,7 +220,11 @@ export class AnthropicProvider extends BaseModelProvider {
       signal: options.signal,
     });
 
-    if (!response.ok || !response.body) throw new Error(`anthropic_${response.status}`);
+    if (!response.ok || !response.body) {
+      const detail = response.ok ? "no response body" : await response.text().catch(() => "");
+      console.error(`[anthropic:stream] ${response.status}`, detail.slice(0, 500));
+      throw new Error(`anthropic_${response.status}`);
+    }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();

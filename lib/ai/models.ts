@@ -21,11 +21,23 @@ export interface ModelSpec {
   outputCostPerMTok: number;
   /** Rough capability tier, used for routing rather than a hard ranking. */
   tier: "fast" | "balanced" | "frontier";
+  /**
+   * Whether the model still accepts `temperature` and the other sampling
+   * parameters.
+   *
+   * They were removed from the current generation and are rejected with a 400,
+   * not ignored — so sending one unconditionally makes every call to a current
+   * model fail. Recorded per model rather than assumed, because the older
+   * models still take them.
+   */
+  acceptsSampling: boolean;
 }
 
 export const MODELS: ModelSpec[] = [
   {
-    key: "claude-haiku-4-5-20251001",
+    // Never a date-suffixed id: the current ids are complete as they stand, and
+    // an invented suffix is rejected as an unknown model.
+    key: "claude-haiku-4-5",
     providerKey: "anthropic",
     displayName: "Claude Haiku 4.5",
     capabilities: ["generate", "stream", "structured", "vision", "analyze"],
@@ -34,28 +46,33 @@ export const MODELS: ModelSpec[] = [
     inputCostPerMTok: 1,
     outputCostPerMTok: 5,
     tier: "fast",
+    // The last generation that still accepts temperature. Everything above it
+    // rejects sampling parameters outright.
+    acceptsSampling: true,
   },
   {
-    key: "claude-sonnet-4-5",
+    key: "claude-sonnet-5",
     providerKey: "anthropic",
-    displayName: "Claude Sonnet 4.5",
+    displayName: "Claude Sonnet 5",
     capabilities: ["generate", "stream", "structured", "vision", "analyze"],
-    contextWindow: 200_000,
-    maxOutputTokens: 16_384,
-    inputCostPerMTok: 3,
-    outputCostPerMTok: 15,
+    contextWindow: 1_000_000,
+    maxOutputTokens: 64_000,
+    inputCostPerMTok: 2,
+    outputCostPerMTok: 10,
     tier: "balanced",
+    acceptsSampling: false,
   },
   {
-    key: "claude-opus-4-5",
+    key: "claude-opus-5",
     providerKey: "anthropic",
-    displayName: "Claude Opus 4.5",
+    displayName: "Claude Opus 5",
     capabilities: ["generate", "stream", "structured", "vision", "analyze"],
-    contextWindow: 200_000,
-    maxOutputTokens: 32_000,
+    contextWindow: 1_000_000,
+    maxOutputTokens: 64_000,
     inputCostPerMTok: 5,
     outputCostPerMTok: 25,
     tier: "frontier",
+    acceptsSampling: false,
   },
 ];
 

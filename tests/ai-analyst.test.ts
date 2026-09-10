@@ -38,7 +38,7 @@ class ScriptedProvider extends BaseModelProvider {
     return {
       value: next as T,
       usage: { inputTokens: 5000, outputTokens: 800, costUsd: 0.027, latencyMs: 900 },
-      modelKey: "claude-sonnet-4-5",
+      modelKey: "claude-sonnet-5",
       providerKey: this.key,
       finishReason: "stop",
     };
