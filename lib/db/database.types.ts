@@ -493,6 +493,22 @@ export type DeploymentCredentialRow = {
   revoked_at: string | null;
 };
 
+export type UpiPaymentClaimRow = {
+  id: string;
+  organization_id: string;
+  payment_order_id: string;
+  plan_key: string;
+  amount_minor: number;
+  /** The 12-digit UTR the payer reads off their UPI app. Unique. */
+  reference: string;
+  status: "pending" | "verified" | "rejected";
+  note: string | null;
+  claimed_by: string | null;
+  claimed_at: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+};
+
 export type DeploymentRecordRow = {
   id: string;
   project_id: string;
@@ -802,6 +818,15 @@ export type Database = {
         Update: Partial<DeploymentCredentialRow>;
         Relationships: [];
       };
+      upi_payment_claims: {
+        Row: UpiPaymentClaimRow;
+        Insert: Pick<
+          UpiPaymentClaimRow,
+          "organization_id" | "payment_order_id" | "plan_key" | "amount_minor" | "reference"
+        > & Partial<UpiPaymentClaimRow>;
+        Update: Partial<UpiPaymentClaimRow>;
+        Relationships: [];
+      };
       deployment_records: {
         Row: DeploymentRecordRow;
         Insert: Pick<DeploymentRecordRow, "project_id" | "provider"> & Partial<DeploymentRecordRow>;
@@ -908,6 +933,14 @@ export type Database = {
           /** The user the work is on behalf of. Required under the service role. */
           p_actor_id?: string | null;
         };
+        Returns: string;
+      };
+      verify_upi_payment: {
+        Args: {
+          p_claim_id: string; p_approve: boolean;
+          p_reviewer?: string | null; p_note?: string | null;
+        };
+        /** 'verified' | 'rejected', or the existing status if already reviewed. */
         Returns: string;
       };
       finalise_code_version: { Args: { p_version_id: string }; Returns: undefined };

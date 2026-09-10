@@ -97,7 +97,12 @@ export async function beginConnect(params: {
 export interface ConnectContext {
   organizationId: string;
   userId: string;
-  provider: ProviderKey;
+  /**
+   * Widened beyond the host providers because the same one-time state table
+   * backs the Figma connect flow — the mechanism is identical and duplicating
+   * it would mean two places to get the replay handling right.
+   */
+  provider: ProviderKey | "figma";
   redirectPath: string;
 }
 
@@ -120,7 +125,7 @@ export async function consumeState(state: string): Promise<ConnectContext | null
   return {
     organizationId: row.organization_id,
     userId: row.user_id,
-    provider: row.provider as ProviderKey,
+    provider: row.provider as ProviderKey | "figma",
     redirectPath: row.redirect_path,
   };
 }

@@ -37,11 +37,17 @@ export async function GET(
   // difference is only useful to someone probing.
   if (!connectContext || connectContext.provider !== provider) return fail("invalid_state");
 
+  // The state table is shared with the Figma connect flow, which stores its
+  // token in a different table entirely. Narrowed here so a Figma state can
+  // never be redeemed as a host credential.
+  const hostProvider = connectContext.provider;
+  if (!PROVIDERS.has(hostProvider as ProviderKey)) return fail("invalid_state");
+
   try {
-    const token = await exchangeCode({ provider: connectContext.provider, code, origin });
+    const token = await exchangeCode({ provider: hostProvider as ProviderKey, code, origin });
     await saveCredential({
       organizationId: connectContext.organizationId,
-      provider: connectContext.provider,
+      provider: hostProvider as ProviderKey,
       userId: connectContext.userId,
       token,
     });

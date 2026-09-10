@@ -4,6 +4,8 @@ import { MarketingNav } from "@/components/layout/marketing-nav";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { PricingPlans } from "@/components/sections/pricing";
 import { BillingToggle } from "./billing-toggle";
+import { getSession } from "@/lib/auth/session";
+import { isUpiConfigured } from "@/lib/payments/upi";
 
 export const metadata: Metadata = {
   title: "Pricing",
@@ -29,7 +31,18 @@ function Cell({ value }: { value: string | boolean }) {
   return <>{value}</>;
 }
 
-export default function PricingPage() {
+// Session-dependent now: a signed-in visitor gets checkout rather than a
+// sign-up link, so this cannot be prerendered once for everyone.
+export const dynamic = "force-dynamic";
+
+export default async function PricingPage() {
+  const session = await getSession();
+  const signedIn = Boolean(session) && !session?.demo;
+  // Read on the server: which methods exist is a deployment fact, not
+  // something the browser should be told to guess at.
+  const upiEnabled = isUpiConfigured();
+  const gatewayEnabled = Boolean(process.env.RAZORPAY_KEY_SECRET && process.env.RAZORPAY_KEY_ID);
+
   return (
     <>
       <MarketingNav />
@@ -44,7 +57,7 @@ export default function PricingPage() {
         </section>
 
         <section className="mx-auto max-w-container px-5 py-10 md:px-10 lg:px-20">
-          <PricingPlans />
+          <PricingPlans signedIn={signedIn} upiEnabled={upiEnabled} gatewayEnabled={gatewayEnabled} />
         </section>
 
         <section className="mx-auto max-w-container px-5 pb-20 md:px-10 lg:px-20">

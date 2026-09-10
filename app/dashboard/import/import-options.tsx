@@ -7,16 +7,31 @@ import { Link2, Lock, Upload } from "lucide-react";
 import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { importFigmaFileAction, type ImportState } from "@/lib/actions/import";
+import { connectFigmaAction, importFigmaFileAction, type ImportState } from "@/lib/actions/import";
 import { cn } from "@/lib/utils";
 
 const SUPPORTED = [".fig", ".png", ".jpg", ".svg"];
+
+/** Reasons the Figma callback can send someone back here. */
+const CONNECT_ERRORS: Record<string, string> = {
+  declined: "The Figma connection was cancelled. Nothing changed.",
+  missing_code: "Figma sent us back without an authorization code. Try connecting again.",
+  invalid_state: "That connection link has expired or was already used. Start again from this page.",
+  exchange_failed: "Figma rejected the connection. Try again, or paste a file URL instead.",
+  not_configured: "Figma sign-in isn't set up on this deployment yet. Paste a file URL instead.",
+  forbidden: "You need the developer role or higher to connect a Figma account.",
+  begin_failed: "We couldn't start the Figma connection. Try again in a moment.",
+};
 const INITIAL: ImportState = {};
 
 export function ImportOptions({
-  projectId, figmaConnected, demo,
+  projectId, figmaConnected, demo, connectError, justConnected,
 }: {
-  projectId: string | null; figmaConnected: boolean; demo: boolean;
+  projectId: string | null;
+  figmaConnected: boolean;
+  demo: boolean;
+  connectError?: string;
+  justConnected?: boolean;
 }) {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(importFigmaFileAction, INITIAL);
@@ -41,6 +56,8 @@ export function ImportOptions({
         <Banner tone="warning">Create a project first — an import has to land somewhere.</Banner>
       )}
       {state.message && <Banner tone="error">{state.message}</Banner>}
+      {justConnected && <Banner tone="success">Figma connected. You can import any file this account can open.</Banner>}
+      {connectError && <Banner tone="error">{CONNECT_ERRORS[connectError] ?? CONNECT_ERRORS.begin_failed}</Banner>}
 
       <section className="flex flex-wrap items-center gap-[18px] rounded-[14px] border border-border bg-bg-surface px-6 py-[22px]">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-[10px] bg-bg-subtle">
@@ -56,9 +73,14 @@ export function ImportOptions({
               : "Browse your files and pick frames to convert. Best accuracy."}
           </p>
         </div>
-        <Button variant={figmaConnected ? "secondary" : "primary"} disabled={demo}>
-          {figmaConnected ? "Reconnect" : "Connect Figma"}
-        </Button>
+        {/* A form posting to a server action. It was a bare <Button> with no
+            onClick and no form — the table, the read path and the token column
+            all existed, and clicking did nothing. */}
+        <form action={connectFigmaAction}>
+          <Button type="submit" variant={figmaConnected ? "secondary" : "primary"} disabled={demo}>
+            {figmaConnected ? "Reconnect" : "Connect Figma"}
+          </Button>
+        </form>
       </section>
 
       <form action={formAction} className="flex flex-col gap-3.5 rounded-[14px] border border-border bg-bg-surface px-6 py-[22px]">

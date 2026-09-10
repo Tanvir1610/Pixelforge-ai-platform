@@ -9,7 +9,12 @@ import { ImportOptions } from "./import-options";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Import your Figma design" };
 
-export default async function ImportPage() {
+export default async function ImportPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ connect_error?: string; connected?: string }>;
+}) {
+  const { connect_error: connectError, connected } = await searchParams;
   const session = await requireSession();
   const [projects, figmaConnected] = await Promise.all([
     listProjects(session, 1),
@@ -35,6 +40,8 @@ export default async function ImportPage() {
           projectId={session.demo ? null : (target?.id ?? null)}
           figmaConnected={figmaConnected}
           demo={session.demo}
+          connectError={connectError}
+          justConnected={connected === "figma"}
         />
       </div>
     </AppShell>

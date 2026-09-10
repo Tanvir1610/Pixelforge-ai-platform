@@ -2,24 +2,58 @@ import Link from "next/link";
 import { Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { buttonClasses } from "@/components/ui/button";
+import { CheckoutButton } from "@/components/billing/checkout-button";
+import { UpiCheckout } from "@/components/billing/upi-checkout";
+import { formatAmount, PLANS as CATALOGUE } from "@/lib/payments/plans";
 import { cn } from "@/lib/utils";
 
+/**
+ * Prices come from the plan catalogue, which is what checkout actually charges.
+ *
+ * They were hardcoded as "$29" and "$99" while `lib/payments/plans.ts` charges
+ * INR 2,499 and 8,299 — so the page advertised a price no order would ever be
+ * created for. A pricing page that disagrees with the till is worse than one
+ * that is merely out of date.
+ */
 export const PLANS = [
   {
-    name: "Free", description: "For experimenting.", price: "$0", cta: "Start for free", href: "/signup",
+    key: "free" as const,
+    name: CATALOGUE.free.displayName, description: "For experimenting.",
+    price: formatAmount(CATALOGUE.free.amountMinor), cta: "Start for free", href: "/signup",
     features: ["3 projects", "50 AI credits monthly", "React and HTML export", "Live preview and comparison", "Community support"],
   },
   {
-    name: "Pro", description: "For serious creators.", price: "$29", cta: "Start 14-day trial", href: "/signup", highlight: true,
+    key: "pro" as const,
+    name: CATALOGUE.pro.displayName, description: "For serious creators.",
+    price: formatAmount(CATALOGUE.pro.amountMinor), cta: "Upgrade to Pro", href: "/signup", highlight: true,
     features: ["Unlimited projects", "2,000 AI credits monthly", "Every framework and styling option", "Fix differences in one action", "One-click deployment", "GitHub sync and custom domains"],
   },
   {
-    name: "Team", description: "For agencies and teams.", price: "$99", cta: "Talk to us", href: "/signup",
+    key: "team" as const,
+    name: CATALOGUE.team.displayName, description: "For agencies and teams.",
+    price: formatAmount(CATALOGUE.team.amountMinor), cta: "Upgrade to Team", href: "/signup",
     features: ["Everything in Pro", "10,000 shared AI credits", "Shared component library", "Roles and permissions", "SSO and audit log", "Priority support"],
   },
 ];
 
-export function PricingPlans({ className }: { className?: string }) {
+/**
+ * `signedIn` decides what the call to action does: a visitor is sent to sign up,
+ * someone already in a workspace goes straight to checkout. The buttons used to
+ * link to /signup either way, which sent a paying customer back to a form for an
+ * account they already had.
+ */
+export function PricingPlans({
+  className,
+  signedIn = false,
+  upiEnabled = false,
+  gatewayEnabled = false,
+}: {
+  className?: string;
+  signedIn?: boolean;
+  /** Which payment methods this deployment can actually take. */
+  upiEnabled?: boolean;
+  gatewayEnabled?: boolean;
+}) {
   return (
     <ul className={cn("grid gap-5 lg:grid-cols-3", className)}>
       {PLANS.map((plan) => (
@@ -47,12 +81,40 @@ export function PricingPlans({ className }: { className?: string }) {
               </li>
             ))}
           </ul>
-          <Link
-            href={plan.href}
-            className={buttonClasses(plan.highlight ? "primary" : "secondary", "md", "mt-6 w-full")}
-          >
-            {plan.cta}
-          </Link>
+          {signedIn && plan.key !== "free" ? (
+            <>
+              {/* Only methods this deployment is actually set up for. Showing a
+                  button that can only report "not configured" wastes a click and
+                  reads as a broken product. */}
+              {upiEnabled && (
+                <UpiCheckout
+                  planKey={plan.key}
+                  label={`Pay by UPI · ${plan.price}`}
+                  variant={plan.highlight ? "primary" : "secondary"}
+                />
+              )}
+              {gatewayEnabled && (
+                <CheckoutButton
+                  planKey={plan.key}
+                  label={upiEnabled ? "Pay by card or netbanking" : plan.cta}
+                  variant={upiEnabled ? "secondary" : plan.highlight ? "primary" : "secondary"}
+                  className="mt-3"
+                />
+              )}
+              {!upiEnabled && !gatewayEnabled && (
+                <p className="mt-6 rounded-md border border-border bg-bg p-3 text-body-sm text-content-muted">
+                  Payments aren&apos;t set up on this deployment yet.
+                </p>
+              )}
+            </>
+          ) : (
+            <Link
+              href={signedIn ? "/dashboard" : plan.href}
+              className={buttonClasses(plan.highlight ? "primary" : "secondary", "md", "mt-6 w-full")}
+            >
+              {signedIn ? "Go to dashboard" : plan.cta}
+            </Link>
+          )}
         </li>
       ))}
     </ul>

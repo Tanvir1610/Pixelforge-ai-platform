@@ -1,11 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
-import { requireOrgRole } from "@/lib/auth/session";
+import { hasOrgRole, requireOrgRole, requireSession } from "@/lib/auth/session";
 import { startAnalysisRun } from "@/lib/repositories/generation";
 import { ingestFigmaFile } from "@/lib/figma/ingest";
 import { parseFigmaUrl } from "@/lib/figma/url";
+import { beginFigmaConnect, isFigmaOauthConfigured } from "@/lib/figma/oauth";
 import { fieldErrors, figmaUrlSchema } from "@/lib/validation/schemas";
 import { z } from "zod";
 
@@ -104,4 +107,64 @@ export async function importFigmaFileAction(_prev: ImportState, formData: FormDa
   } catch (error) {
     return { message: error instanceof Error ? error.message : "The import could not be started." };
   }
+}
+
+/**
+ * Starts the Figma connect flow.
+ *
+ * A form action rather than an onClick, so the button works before hydration.
+ *
+ * `redirect` works by throwing, so every call to it here sits outside the try
+ * below — a catch meant for real failures must never swallow a redirect. That
+ * also avoids reaching for Next's internal `isRedirectError`, which is not a
+ * public API and moves between versions.
+ */
+export async function connectFigmaAction(): Promise<void> {
+  // Outside the try: requireSession redirects to /login, and that has to
+  // propagate rather than be reported as a failed connection.
+  const session = await requireSession();
+
+  if (!hasOrgRole(session, "developer")) {
+    redirect("/dashboard/import?connect_error=forbidden");
+  }
+
+  if (!isFigmaOauthConfigured()) {
+    redirect("/dashboard/import?connect_error=not_configured");
+  }
+
+  let destination: string | null = null;
+  try {
+    destination = await beginFigmaConnect({
+      organizationId: session.organization.id,
+      userId: session.user.id,
+      origin: await connectOrigin(),
+      redirectPath: "/dashboard/import",
+    });
+  } catch (error) {
+    console.error("[connect:figma:begin]", error);
+  }
+
+  redirect(destination ?? "/dashboard/import?connect_error=begin_failed");
+}
+
+/**
+ * The origin Figma is told to return to.
+ *
+ * Configured value first: behind a proxy the request's own origin is the Host
+ * header, and a redirect_uri built from a header a caller controls is not one
+ * to hand an OAuth provider.
+ */
+async function connectOrigin(): Promise<string> {
+  const configured = process.env.NEXT_PUBLIC_APP_URL;
+  if (configured) {
+    try {
+      return new URL(configured).origin;
+    } catch {
+      // Fall through to the request's own host.
+    }
+  }
+  const headerList = await headers();
+  const host = headerList.get("host") ?? "localhost:3000";
+  const protocol = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
+  return `${protocol}://${host}`;
 }
