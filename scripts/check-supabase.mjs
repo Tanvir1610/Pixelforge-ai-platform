@@ -92,6 +92,28 @@ if (!serviceKey) {
   if (!rpcError) pass("authorization helpers installed");
   else fail(`has_org_role missing: ${rpcError.message}`);
 
+  // 0016. The actor-scoped predicates are what let a worker holding the service
+  // role say who it is acting for; without them code generation cannot save a
+  // version at all, so a half-applied migration set has to be visible here.
+  const NIL = "00000000-0000-0000-0000-000000000000";
+  const { error: actorError } = await admin.rpc("can_write_project_as", { p_user: NIL, p_project: NIL });
+  if (!actorError) pass("actor-scoped authorization installed (0016)");
+  else fail(`can_write_project_as missing — run migration 0016: ${actorError.message}`);
+
+  // Called with the actor argument the service role must pass. A complaint about
+  // p_actor_id means the pre-0016 four-argument version is still installed,
+  // which no worker can ever satisfy.
+  const { error: versionError } = await admin.rpc("create_code_version", { p_project_id: NIL, p_actor_id: NIL });
+  if (versionError && /insufficient|privilege/i.test(versionError.message)) {
+    pass("create_code_version accepts an explicit actor (0016)");
+  } else if (versionError && /p_actor_id|does not exist|schema cache/i.test(versionError.message)) {
+    fail("create_code_version has no p_actor_id — migration 0016 is not applied");
+  } else if (versionError) {
+    fail(`create_code_version: ${versionError.message}`);
+  } else {
+    fail("create_code_version authorised a nil actor — the permission check is not running");
+  }
+
   console.log("\nStorage");
   const { data: buckets, error: bucketError } = await admin.storage.listBuckets();
   if (bucketError) {

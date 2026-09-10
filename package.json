@@ -13,7 +13,7 @@
     "db:verify": "bash scripts/verify-db.sh",
     "check:supabase": "node scripts/check-supabase.mjs",
     "db:push": "supabase db push",
-    "db:types": "supabase gen types typescript --linked > lib/db/database.types.ts"
+    "db:types": "node -e \"console.error('lib/db/database.types.ts is hand-written; generating over it drops 54 named exports that 20 files import. Edit it by hand, then run npm run typecheck.'); process.exit(1)\""
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.6",

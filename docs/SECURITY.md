@@ -31,9 +31,30 @@ marketing pages read no database.
 
 `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS. It is read only through
 `getServiceRoleKey()`, only in `createServiceClient()`, and only from
-`server-only` modules. It is used for trusted background work that has already
-done its own authorization: worker pipelines, usage metering, audit writes. It
-is never used in response to unvalidated user input.
+`server-only` modules. `getServiceRoleKey()` lives alone in
+`lib/supabase/service-key.ts` rather than beside the public config in
+`lib/supabase/env.ts`, because that module is imported by the browser client and
+`server-only` is what makes the boundary a build error instead of a convention.
+
+It is used for trusted background work that has already done its own
+authorization: worker pipelines, usage metering, audit writes. It is never used
+in response to unvalidated user input.
+
+### A worker still has to name its actor
+
+`auth.uid()` is null under the service role, so every `can_read_project` /
+`can_write_project` check is false there. That is the correct default — it means
+the service role cannot silently inherit anyone's access — but it leaves a
+worker with no way to say who it is acting for.
+
+`can_read_project_as(user, project)` and `can_write_project_as(user, project)`
+take the actor explicitly, and the RLS predicates are now defined in terms of
+them so there is one implementation of the rule. `create_code_version` takes a
+`p_actor_id`, and refuses when it has neither a JWT nor an actor: a service-role
+call that does not name a user is a bug, not a licence.
+
+The alternative — dropping the check because the caller is trusted — would have
+made the service role a route into any tenant's project.
 
 Four tables have no client write policy at all — `audit_logs`, `model_runs`,
 `usage_records`, `build_errors` — so even a policy bug cannot let a client forge
@@ -71,13 +92,32 @@ account exists is not observable.
 `/auth/callback` honours `next` only when it is a same-origin relative path;
 `//evil.test` and absolute URLs fall back to `/dashboard`.
 
-## Sandbox (Phase 5, not yet built)
+## Sandbox
 
-Generated code will never execute on the application server. Planned isolation:
-separate filesystem, CPU and memory limits, no network by default, process
-timeout, no access to secrets, the production database, or internal APIs.
+Generated code never executes on the application server. See
+[PHASE5_SANDBOX](PHASE5_SANDBOX.md) for the controls and their honest limits.
+
+One of them is worth stating here because it was wrong: **the build toolchain is
+never fetched at build time.** The pipeline used to run `npx tsc`, and the
+sandbox is an empty directory, so npx did what npx does — downloaded a package
+named `tsc` from the public registry and ran it. That package is not the
+TypeScript compiler. Every build executed code from a name we do not control,
+inside the sandbox, which is exactly what `--ignore-scripts` is in the install
+step to prevent; and because it was not a compiler, the typecheck gate never
+typechecked anything. Tools are now resolved to an entrypoint already on disk,
+and a tool that cannot be found is an error rather than a download.
+
+## Redirects and origins
+
+`/auth/callback` honours `next` only when it is a same-origin relative path.
+
+The host OAuth callback builds its `redirect_uri` and its post-exchange redirect
+from `NEXT_PUBLIC_APP_URL` when it is set, falling back to the request origin
+only for local development. The request origin is the `Host` header, which a
+proxy passes through unchanged, so deriving either from it turned the callback
+into an open redirect for anyone who could set that header.
 
 ## Not yet implemented
 
-Rate limiting, API key issuance and verification, audit-log write triggers,
-and the sandbox. Tracked as Phase 8 and Phase 5 respectively.
+Rate limiting, API key issuance and verification, and audit-log write triggers.
+Tracked as Phase 8.

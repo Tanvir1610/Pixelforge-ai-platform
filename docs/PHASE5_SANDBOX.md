@@ -37,8 +37,9 @@ parent is invisible to the child.
 **`shell: false` everywhere.** Arguments are passed as an array, so a filename
 containing `; rm -rf /` stays a filename. Tested.
 
-**Timeouts kill the process group**, not just the direct child — npm spawns
-children that outlive it. `detached: true` plus `kill(-pid)`.
+**Timeouts kill the process tree**, not just the direct child — npm spawns
+children that outlive it. `detached: true` plus `kill(-pid)` on POSIX; Windows
+has no process groups, so `taskkill /T /F` walks the tree instead.
 
 **Output is bounded.** A runaway process producing gigabytes of logs is
 truncated at 512 KB rather than buffered into the worker's heap.
@@ -47,6 +48,26 @@ truncated at 512 KB rather than buffered into the worker's heap.
 Without it a dependency's `postinstall` runs arbitrary code the instant install
 begins, before any other control applies. Generated projects have no legitimate
 need for install scripts.
+
+**The toolchain is never fetched.** The pipeline reads as `npx tsc`, but `npx`
+is never executed: `resolveSpawn` maps a tool to an entrypoint already on disk —
+the sandbox's own `node_modules` first, the platform's installation second — and
+runs it as a script under the Node binary already executing us. A tool it cannot
+find is an error.
+
+This was a live hole. The sandbox is an empty directory, so `npx tsc` found no
+local TypeScript and downloaded a package named `tsc` from the public registry
+and executed it. That package is an abandoned third-party one, not the compiler.
+So every build ran code from a name we do not control, inside the sandbox,
+defeating `--ignore-scripts` one step later in the same pipeline — and the
+typecheck phase, not being a compiler, never typechecked anything. Two of the
+sandbox tests had been failing on the resulting output and were read as a
+Windows quirk.
+
+Running the entrypoint under Node rather than the `.bin` shim also fixes the
+platform problem underneath it: shims are `.cmd` files on Windows, `shell: true`
+would put generated filenames through a command interpreter, and Node refuses to
+spawn a batch file without one (CVE-2024-27980).
 
 **Paths are re-validated at materialise time.** The write path already checked
 them, but this is the last point before bytes hit a real filesystem, and

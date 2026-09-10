@@ -3,7 +3,11 @@
 project_id = "dggzgtwwzbzvepejpchq"
 
 [db]
-major_version = 16
+# Supabase never shipped Postgres 16 as a hosted major version (15 -> 17), so the
+# CLI rejects it outright: "Invalid db.major_version: 16". This matches what the
+# linked project actually runs. It governs the local `supabase start` stack; a
+# push to a remote uses the remote's own version.
+major_version = 17
 
 [auth]
 site_url = "http://localhost:3000"

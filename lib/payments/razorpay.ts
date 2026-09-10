@@ -56,6 +56,14 @@ export interface RazorpayClientOptions {
 }
 
 const API = "https://api.razorpay.com/v1";
+/**
+ * Per-request ceiling.
+ *
+ * A payment call with no timeout is a request that can hang until the platform
+ * kills it, holding a checkout open with the user watching a spinner and no way
+ * to know whether their money moved.
+ */
+const REQUEST_TIMEOUT_MS = 20_000;
 
 export class RazorpayClient {
   private readonly auth: string;
@@ -72,14 +80,27 @@ export class RazorpayClient {
     const maxAttempts = retry ? 3 : 1;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const response = await this.fetchImpl(`${API}${path}`, {
-        ...rest,
-        headers: {
-          Authorization: `Basic ${this.auth}`,
-          "Content-Type": "application/json",
-          ...(rest.headers ?? {}),
-        },
-      });
+      let response: Response;
+      try {
+        response = await this.fetchImpl(`${API}${path}`, {
+          ...rest,
+          headers: {
+            Authorization: `Basic ${this.auth}`,
+            "Content-Type": "application/json",
+            ...(rest.headers ?? {}),
+          },
+          signal: rest.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+      } catch {
+        // A transport failure on the last attempt is reported as upstream, with
+        // the copy that says no charge was made — which is true: we never got a
+        // response saying one was.
+        if (attempt === maxAttempts - 1) {
+          throw new RazorpayError("upstream", RAZORPAY_ERROR_COPY.upstream);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2 ** attempt * 400));
+        continue;
+      }
 
       if (response.ok) return (await response.json()) as T;
 

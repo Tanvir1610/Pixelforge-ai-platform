@@ -80,10 +80,36 @@ grant update (name, slug) on organizations to authenticated;
 an admin cannot raise their limit, cannot promote their plan, and can still
 rename their workspace.
 
-## Refunds remove entitlement
+## Refunds remove entitlement — in full, not in part
 
-A refund drops the organization back to free. Otherwise a customer could pay,
-refund, and keep the plan.
+A *full* refund drops the organization back to free. Otherwise a customer could
+pay, refund, and keep the plan.
+
+A partial refund does not. It records `partially_refunded` and leaves the
+entitlement alone: a goodwill refund of a rupee is not a cancellation, and
+treating it as one billed the customer nothing and took their plan away.
+
+## Attribution comes from our records first
+
+`notes.organization_id` and `notes.plan_key` are echoed back by the gateway and
+covered by the signature, so they cannot be forged. They can, however, be *set*
+on a payment created outside our checkout — a payment link, or the dashboard —
+and `plan_key` is a grant of entitlement.
+
+So the order row we wrote when the checkout began wins: the payment's
+`order_id` is looked up in `payment_orders`, and the notes are the fallback for
+a payment with no order of ours behind it.
+
+## Deliveries are not ordered
+
+A gateway retries aggressively and delivers out of order. The event ledger stops
+a duplicate being *processed* twice, but it does not stop a late
+`payment.authorized` being processed *after* the `payment.captured` it precedes
+— which used to overwrite the captured row and null out `captured_at`, turning a
+paid customer back into an unpaid one.
+
+Payment states are ranked by how settled they are, and a delivery that would
+move a payment backwards down that ranking is recorded as stale and ignored.
 
 ## What is not built
 

@@ -4,7 +4,8 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/db/database.types";
-import { getPublicEnv, getServiceRoleKey } from "./env";
+import { getPublicEnv } from "./env";
+import { getServiceRoleKey } from "./service-key";
 
 export type Client = SupabaseClient<Database>;
 

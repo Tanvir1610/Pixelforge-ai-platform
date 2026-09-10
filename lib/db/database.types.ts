@@ -1,8 +1,14 @@
 /**
  * Database types.
  *
- * Regenerate after every migration:
- *   npx supabase gen types typescript --linked > lib/db/database.types.ts
+ * Hand-written, NOT generated — do not overwrite this with
+ * `supabase gen types typescript`. That command emits a single `Database` type
+ * with `Tables<...>` helpers and none of the 54 named exports below
+ * (`ProfileRow`, `OrgRole`, `ProjectStatus`, …) that 20 files import. Running it
+ * replaces this file and breaks the build.
+ *
+ * After a migration, edit the affected rows and RPC signatures here by hand and
+ * run `npm run typecheck`.
  *
  * Checked in so the app typechecks without a live database connection. Only the
  * tables Phase 1 touches are fully typed; the rest are declared as they are
@@ -847,6 +853,8 @@ export type Database = {
     Functions: {
       can_read_project: { Args: { project: string }; Returns: boolean };
       can_write_project: { Args: { project: string }; Returns: boolean };
+      can_read_project_as: { Args: { p_user: string; p_project: string }; Returns: boolean };
+      can_write_project_as: { Args: { p_user: string; p_project: string }; Returns: boolean };
       has_org_role: { Args: { org_id: string; minimum: OrgRole }; Returns: boolean };
       my_figma_connection: {
         Args: Record<never, never>;
@@ -882,6 +890,8 @@ export type Database = {
         Args: {
           p_project_id: string; p_label?: string | null;
           p_summary?: string | null; p_generation_run_id?: string | null;
+          /** The user the work is on behalf of. Required under the service role. */
+          p_actor_id?: string | null;
         };
         Returns: string;
       };

@@ -9,7 +9,7 @@ export default function SignupPage() {
   return (
     <AuthLayout>
       <div>
-        <h1 className="font-display text-[26px] font-bold tracking-[-0.02em]">Create your account</h1>
+        <h1 className="font-display text-[24px] font-bold tracking-[-0.02em] sm:text-[26px]">Create your account</h1>
         <p className="mt-1 text-body text-content-muted">Start with three free projects and 50 AI credits.</p>
       </div>
       <OauthButtons />

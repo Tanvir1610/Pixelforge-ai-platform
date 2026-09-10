@@ -87,9 +87,67 @@ export function planFromPayload(payload: WebhookPayload): PlanKey | null {
   return key === "pro" || key === "team" || key === "free" ? key : null;
 }
 
+export function orderIdFromPayload(payload: WebhookPayload): string | null {
+  return payload.payload?.payment?.entity?.order_id ?? payload.payload?.order?.entity?.id ?? null;
+}
+
+/**
+ * Resolves who and what a payment is for, preferring our own order record.
+ *
+ * The notes are echoed back by the gateway and the signature covers them, so
+ * they are not forgeable — but they are also settable on a payment created
+ * outside our checkout (a payment link, or the dashboard), and a plan key is a
+ * grant of entitlement. The order row we wrote when the checkout began is the
+ * stronger evidence, so it wins; the notes remain the fallback for a payment
+ * that legitimately has no order of ours behind it.
+ */
+export async function attribute(
+  payload: WebhookPayload,
+): Promise<{ organizationId: string | null; plan: PlanKey | null }> {
+  const fromNotes = { organizationId: organizationFromPayload(payload), plan: planFromPayload(payload) };
+  const orderId = orderIdFromPayload(payload);
+  if (!orderId) return fromNotes;
+
+  const supabase = createServiceClient();
+  const { data } = await supabase
+    .from("payment_orders")
+    .select("organization_id, plan_key")
+    .eq("provider_order_id", orderId)
+    .maybeSingle<{ organization_id: string; plan_key: string | null }>();
+
+  if (!data) return fromNotes;
+
+  const plan = data.plan_key;
+  return {
+    organizationId: data.organization_id,
+    plan: plan === "pro" || plan === "team" || plan === "free" ? plan : fromNotes.plan,
+  };
+}
+
+/**
+ * Payment states, ordered by how settled they are.
+ *
+ * Webhook deliveries are not ordered. A `payment.authorized` arriving after the
+ * `payment.captured` it precedes used to overwrite the captured row and null out
+ * captured_at, turning a paid customer back into an unpaid one.
+ */
+const STATUS_RANK: Record<string, number> = {
+  created: 0,
+  failed: 1,
+  authorized: 2,
+  captured: 3,
+  partially_refunded: 4,
+  refunded: 5,
+};
+
+export function isStatusRegression(current: string | null | undefined, incoming: string): boolean {
+  if (!current) return false;
+  return (STATUS_RANK[incoming] ?? 0) < (STATUS_RANK[current] ?? 0);
+}
+
 export async function handleWebhook(payload: WebhookPayload, eventId: string): Promise<WebhookOutcome> {
   const supabase = createServiceClient();
-  const organizationId = organizationFromPayload(payload);
+  const { organizationId, plan } = await attribute(payload);
 
   // Claimed first: a duplicate must not reach the handlers below.
   const { data: claimed } = await supabase.rpc("claim_webhook_event", {
@@ -104,7 +162,7 @@ export async function handleWebhook(payload: WebhookPayload, eventId: string): P
   }
 
   try {
-    const action = await apply(payload, organizationId);
+    const action = await apply(payload, organizationId, plan);
     await supabase.rpc("complete_webhook_event", { p_provider_event_id: eventId, p_error: null });
     return { handled: true, duplicate: false, action };
   } catch (error) {
@@ -118,7 +176,11 @@ export async function handleWebhook(payload: WebhookPayload, eventId: string): P
   }
 }
 
-async function apply(payload: WebhookPayload, organizationId: string | null): Promise<string> {
+async function apply(
+  payload: WebhookPayload,
+  organizationId: string | null,
+  plan: PlanKey | null,
+): Promise<string> {
   const supabase = createServiceClient();
   const payment = payload.payload?.payment?.entity;
 
@@ -133,6 +195,19 @@ async function apply(payload: WebhookPayload, organizationId: string | null): Pr
         payment.amount_refunded ?? 0,
         payment.amount ?? 0,
       );
+
+      // Deliveries are not ordered, so a late `authorized` must not undo the
+      // `captured` that already landed.
+      const { data: existing } = await supabase
+        .from("payments")
+        .select("status")
+        .eq("provider", "razorpay")
+        .eq("provider_payment_id", payment.id)
+        .maybeSingle<{ status: string }>();
+
+      if (isStatusRegression(existing?.status, status)) {
+        return `ignored_stale_${status}`;
+      }
 
       await supabase.from("payments").upsert(
         {
@@ -159,21 +234,18 @@ async function apply(payload: WebhookPayload, organizationId: string | null): Pr
 
       // Only a captured payment grants anything. Authorised means the money is
       // held, not taken.
-      if (status === "captured") {
-        const plan = planFromPayload(payload);
-        if (plan) {
-          const periodEnd = new Date();
-          periodEnd.setMonth(periodEnd.getMonth() + 1);
+      if (status === "captured" && plan) {
+        const periodEnd = new Date();
+        periodEnd.setMonth(periodEnd.getMonth() + 1);
 
-          await supabase.rpc("apply_subscription", {
-            p_organization_id: organizationId,
-            p_plan_key: plan,
-            p_status: "active",
-            p_period_start: new Date().toISOString(),
-            p_period_end: periodEnd.toISOString(),
-          });
-          return "subscription_activated";
-        }
+        await supabase.rpc("apply_subscription", {
+          p_organization_id: organizationId,
+          p_plan_key: plan,
+          p_status: "active",
+          p_period_start: new Date().toISOString(),
+          p_period_end: periodEnd.toISOString(),
+        });
+        return "subscription_activated";
       }
 
       return `payment_${status}`;
@@ -182,16 +254,27 @@ async function apply(payload: WebhookPayload, organizationId: string | null): Pr
     case "refund.created":
     case "refund.processed": {
       if (!payment?.id) return "ignored_no_payment";
+
+      const refunded = payment.amount_refunded ?? payment.amount ?? 0;
+      const charged = payment.amount ?? 0;
+      // A ₹1 goodwill refund is not a cancellation. Only a refund of the whole
+      // amount removes what the payment bought; anything less leaves the
+      // entitlement in place and records the partial state.
+      const full = charged > 0 ? refunded >= charged : true;
+
       await supabase
         .from("payments")
         .update({
-          amount_refunded_minor: payment.amount_refunded ?? payment.amount ?? 0,
-          status: "refunded" as never,
+          amount_refunded_minor: refunded,
+          status: (full ? "refunded" : "partially_refunded") as never,
         })
+        .eq("provider", "razorpay")
         .eq("provider_payment_id", payment.id);
 
-      // A refund removes the entitlement it paid for; leaving it would let a
-      // customer refund and keep the plan.
+      if (!full) return "partially_refunded";
+
+      // A full refund removes the entitlement it paid for; leaving it would let
+      // a customer refund and keep the plan.
       if (organizationId) {
         await supabase.rpc("apply_subscription", {
           p_organization_id: organizationId,
@@ -209,7 +292,6 @@ async function apply(payload: WebhookPayload, organizationId: string | null): Pr
       const subscription = payload.payload?.subscription?.entity;
       if (!subscription?.id || !organizationId) return "ignored_unattributable";
 
-      const plan = planFromPayload(payload) ?? "free";
       const status =
         payload.event === "subscription.cancelled" ? "canceled"
         : payload.event === "subscription.halted" ? "past_due"
@@ -217,7 +299,7 @@ async function apply(payload: WebhookPayload, organizationId: string | null): Pr
 
       await supabase.rpc("apply_subscription", {
         p_organization_id: organizationId,
-        p_plan_key: status === "active" ? plan : "free",
+        p_plan_key: status === "active" ? (plan ?? "free") : "free",
         p_status: status,
         p_provider_subscription_id: subscription.id,
         p_period_start: subscription.current_start

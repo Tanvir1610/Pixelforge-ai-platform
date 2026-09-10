@@ -23,6 +23,14 @@ export interface WriteVersionInput {
   label?: string;
   summary?: string;
   generationRunId?: string;
+  /**
+   * The user this version is written on behalf of.
+   *
+   * Required, because this function writes with the service role: without an
+   * actor the database has no one to authorise the write against, and the
+   * service role would become a way into any tenant's project.
+   */
+  actorUserId: string;
 }
 
 export interface WriteVersionResult {
@@ -30,6 +38,62 @@ export interface WriteVersionResult {
   versionNumber: number;
   diff: Omit<DiffResult, "records">;
   rejectedPaths: string[];
+  /** Paths whose content went to object storage rather than inline in the row. */
+  offloadedPaths: string[];
+}
+
+/**
+ * Object key for a file too big to inline.
+ *
+ * Content-addressed, not version-addressed. A version is a full snapshot of the
+ * tree, so most large files are byte-identical to the previous version's; keying
+ * on the hash means carrying one forward costs nothing and needs no copy. The
+ * first segment is the project id because that is what the storage policy reads
+ * to resolve the owning project — see 0006. Any other shape is an object no
+ * policy can authorise.
+ */
+export function codeObjectPath(projectId: string, contentHash: string): string {
+  return `${projectId}/code/${contentHash}`;
+}
+
+/** Content lives in storage rather than in the row above this size. */
+function isOffloaded(record: FileRecord): boolean {
+  return record.changeKind !== "deleted" && record.bytes > INLINE_LIMIT;
+}
+
+/**
+ * Uploads oversized file contents to `build-artifacts`.
+ *
+ * Previously the row was written with a storage_path and a null content and
+ * nothing ever put an object there, so every generated file over 64 KB came
+ * back empty — a silent data loss that only showed up on files large enough to
+ * matter.
+ *
+ * Only records whose content is in hand are uploaded. A carried-forward file
+ * already has an object at its hash from the version that first wrote it.
+ */
+async function offloadLargeFiles(projectId: string, records: FileRecord[]): Promise<string[]> {
+  const oversized = records.filter((record) => isOffloaded(record) && record.content !== null);
+  if (oversized.length === 0) return [];
+
+  const supabase = createServiceClient();
+  const uploaded: string[] = [];
+
+  for (const record of oversized) {
+    const { error } = await supabase.storage
+      .from("build-artifacts")
+      .upload(codeObjectPath(projectId, record.contentHash), Buffer.from(record.content ?? "", "utf8"), {
+        contentType: "text/plain; charset=utf-8",
+        upsert: true,
+      });
+
+    if (error) {
+      throw new Error(`Could not store "${record.path}" (${record.bytes} bytes): ${error.message}`);
+    }
+    uploaded.push(record.path);
+  }
+
+  return uploaded;
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -80,6 +144,10 @@ async function latestVersionId(projectId: string): Promise<string | null> {
 export async function writeVersion(input: WriteVersionInput): Promise<WriteVersionResult> {
   const supabase = createServiceClient();
 
+  if (!input.actorUserId) {
+    throw new Error("writeVersion requires the user the version is written on behalf of.");
+  }
+
   const rejectedPaths = input.files.filter((file) => !isSafePath(file.path)).map((file) => file.path);
   const safeFiles = input.files.filter((file) => isSafePath(file.path));
   const safeDeletions = (input.deletions ?? []).filter(isSafePath);
@@ -92,17 +160,30 @@ export async function writeVersion(input: WriteVersionInput): Promise<WriteVersi
   const records = carryForward(previous, diff);
 
   // create_code_version assigns the number under a lock and checks authorization.
+  // The actor is explicit because this call uses the service role: the function
+  // authorises against that user rather than against a JWT it does not have.
   const { data: versionId, error } = await supabase.rpc("create_code_version", {
     p_project_id: input.projectId,
     p_label: input.label ?? null,
     p_summary: input.summary ?? null,
     p_generation_run_id: input.generationRunId ?? null,
+    p_actor_id: input.actorUserId,
   });
 
-  if (error || !versionId) throw new Error(`Could not create a version: ${error?.message}`);
+  if (error || !versionId) {
+    if (error?.code === "42501") {
+      throw new Error("You do not have permission to write code for this project.");
+    }
+    throw new Error(`Could not create a version: ${error?.message}`);
+  }
 
   const deletedRecords = diff.records.filter((record) => record.changeKind === "deleted");
   const allRecords: FileRecord[] = [...records, ...deletedRecords];
+
+  // Oversized content is uploaded BEFORE the rows that point at it. A row whose
+  // storage_path resolves to nothing is a file that has silently lost its
+  // contents, which is worse than a version that failed to write at all.
+  const offloadedPaths = await offloadLargeFiles(input.projectId, allRecords);
 
   for (const batch of chunk(allRecords, CHUNK)) {
     const { error: writeError } = await supabase.from("generated_files").insert(
@@ -112,7 +193,7 @@ export async function writeVersion(input: WriteVersionInput): Promise<WriteVersi
         content_hash: record.contentHash,
         // Large files live in storage; the row keeps the hash for diffing.
         content: record.content !== null && record.bytes <= INLINE_LIMIT ? record.content : null,
-        storage_path: record.bytes > INLINE_LIMIT ? `${input.projectId}/code/${versionId}/${record.path}` : null,
+        storage_path: isOffloaded(record) ? codeObjectPath(input.projectId, record.contentHash) : null,
         bytes: record.bytes,
         language: record.language,
         change_kind: record.changeKind,
@@ -134,6 +215,7 @@ export async function writeVersion(input: WriteVersionInput): Promise<WriteVersi
     versionNumber: version?.version_number ?? 1,
     diff: { added: diff.added, modified: diff.modified, deleted: diff.deleted, unchanged: diff.unchanged },
     rejectedPaths,
+    offloadedPaths,
   };
 }
 
@@ -184,18 +266,32 @@ export async function listVersions(projectId: string, limit = 20): Promise<Versi
     }));
 }
 
+/**
+ * Reads one file from a version.
+ *
+ * Inline content is returned directly; anything that was offloaded is fetched
+ * from storage. A caller should never have to know which side of the size
+ * threshold a file fell on.
+ */
 export async function readFile(versionId: string, path: string): Promise<string | null> {
   const supabase = await createClient();
   if (!supabase) return null;
 
   const { data } = await supabase
     .from("generated_files")
-    .select("content")
+    .select("content, storage_path")
     .eq("code_version_id", versionId)
     .eq("path", path)
     .maybeSingle();
 
-  return data?.content ?? null;
+  if (!data) return null;
+  if (data.content !== null) return data.content;
+  if (!data.storage_path) return null;
+
+  // Read under the caller's JWT, so the storage policy still applies.
+  const { data: object, error } = await supabase.storage.from("build-artifacts").download(data.storage_path);
+  if (error || !object) return null;
+  return object.text();
 }
 
 /** Restores a previous file set as a new version. Never destructive. */

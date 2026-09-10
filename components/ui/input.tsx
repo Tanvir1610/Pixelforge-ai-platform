@@ -14,7 +14,9 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
   return (
     <div
       className={cn(
-        "flex h-[38px] w-full items-center gap-2 rounded-md border border-border bg-bg-surface px-3 shadow-sm transition",
+        // 44px on touch, the design's 38px from sm up: below that the control is
+        // smaller than the recommended tap target.
+        "flex h-11 w-full items-center gap-2 rounded-md border border-border bg-bg-surface px-3 shadow-sm transition sm:h-[38px]",
         "focus-within:border-accent focus-within:shadow-[0_0_0_3px_rgba(99,102,241,.2)]",
         invalid && "border-error shadow-[0_0_0_3px_rgba(239,68,68,.15)]",
         disabled && "bg-bg-subtle text-content-muted",
@@ -26,7 +28,10 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
         ref={ref}
         disabled={disabled}
         aria-invalid={invalid || undefined}
-        className="min-w-0 flex-1 bg-transparent text-body text-content outline-none placeholder:text-content-muted disabled:cursor-not-allowed"
+        // 16px on small screens is not a style choice: iOS Safari zooms the
+        // viewport when a focused input is under 16px, which throws the layout
+        // off and leaves the page scrolled sideways.
+        className="min-w-0 flex-1 bg-transparent text-base text-content outline-none placeholder:text-content-muted disabled:cursor-not-allowed sm:text-body"
         {...props}
       />
       {trailing && <span className="shrink-0 text-content-muted">{trailing}</span>}

@@ -11,7 +11,8 @@ come from environment variables only; nothing is committed. See `.env.example`.
 npm install
 supabase link --project-ref <ref>
 supabase db push                # applies supabase/migrations in order
-npx supabase gen types typescript --linked > lib/db/database.types.ts
+# lib/db/database.types.ts is hand-written, not generated - see its header.
+npm run typecheck
 npm run dev
 ```
 

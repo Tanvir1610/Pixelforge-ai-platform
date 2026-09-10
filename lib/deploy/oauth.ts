@@ -210,3 +210,24 @@ export async function saveCredential(params: {
 export function safeRedirect(path: string, fallback = "/dashboard/deployments"): string {
   return path.startsWith("/") && !path.startsWith("//") ? path : fallback;
 }
+
+/**
+ * The origin to build redirect URIs and redirects from.
+ *
+ * `new URL(request.url).origin` reflects the Host header, which a proxy will
+ * pass through unchanged. That origin was being sent to the host as the OAuth
+ * `redirect_uri` and used as the base of the browser redirect after the
+ * exchange, so a spoofed Host turned the callback into an open redirect. When
+ * `NEXT_PUBLIC_APP_URL` is configured it is authoritative; the request origin is
+ * the fallback for local development, where there is no proxy to lie.
+ */
+export function appOrigin(requestOrigin: string): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL;
+  if (!configured) return requestOrigin;
+
+  try {
+    return new URL(configured).origin;
+  } catch {
+    return requestOrigin;
+  }
+}

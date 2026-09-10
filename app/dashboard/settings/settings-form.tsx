@@ -90,7 +90,7 @@ export function SettingsForm() {
                 id="setting-desc"
                 rows={3}
                 defaultValue="Marketing site generated from the Northwind Figma file."
-                className="w-full resize-y rounded-md border border-border bg-bg-surface px-3 py-2.5 text-body shadow-sm outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(99,102,241,.2)]"
+                className="w-full resize-y rounded-md border border-border bg-bg-surface px-3 py-2.5 text-base shadow-sm outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(99,102,241,.2)] sm:text-body"
               />
             </Field>
             <Field

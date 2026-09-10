@@ -3,6 +3,7 @@ import "server-only";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isSafePath } from "@/lib/code/diff";
 import {
@@ -94,6 +95,125 @@ function sandboxEnv(root: string): NodeJS.ProcessEnv {
   };
 }
 
+/**
+ * Where each build tool's JavaScript entrypoint lives inside a package.
+ *
+ * Entrypoints, not the `.bin` shims: a shim is a `.cmd` batch file on Windows,
+ * and Node refuses to spawn one without a shell (CVE-2024-27980). Running the
+ * `.js` under the Node binary already executing us needs no interpreter at all.
+ */
+const TOOL_ENTRYPOINTS: Record<string, string> = {
+  tsc: "typescript/bin/tsc",
+  tsserver: "typescript/bin/tsserver",
+  eslint: "eslint/bin/eslint.js",
+  next: "next/dist/bin/next",
+  vitest: "vitest/vitest.mjs",
+};
+
+/**
+ * Finds a build tool without going near the network.
+ *
+ * The sandbox's own `node_modules` wins, so a generated project that pinned its
+ * own TypeScript is typechecked by that one. Falling back to the platform's
+ * installation is deliberate: the toolchain is ours, and a project that failed
+ * to install its dev dependencies should still be checked rather than skipped.
+ */
+export function findToolEntrypoint(
+  tool: string,
+  roots: string[],
+  exists: (path: string) => boolean = existsSync,
+): string | null {
+  const relative = TOOL_ENTRYPOINTS[tool];
+  if (!relative) return null;
+
+  for (const root of roots) {
+    const candidate = join(root, "node_modules", ...relative.split("/"));
+    if (exists(candidate)) return candidate;
+  }
+  return null;
+}
+
+export class SandboxToolError extends Error {}
+
+/**
+ * Resolves a pipeline step to an executable and its arguments.
+ *
+ * Two things are wrong with running `npx <tool>` here, and the second is the
+ * serious one.
+ *
+ * On Windows, `npm` and `npx` are `.cmd` batch files, so `spawn(..., { shell:
+ * false })` fails — ENOENT, or EINVAL if the extension is supplied. That is not
+ * a build failure but it looked exactly like one: exit code null, nothing
+ * parseable, an EXIT_null error with no file attached.
+ *
+ * Worse: the sandbox is an empty directory, so `npx tsc` found no local
+ * TypeScript and did what npx does — downloaded a package named `tsc` from the
+ * public registry and executed it. That package is not the TypeScript compiler;
+ * it is an abandoned third-party one. Every build fetched and ran code from a
+ * name we do not control, inside the sandbox, which is precisely the thing
+ * `--ignore-scripts` is in the install step to prevent. And because that
+ * package is not a compiler, the typecheck gate never typechecked anything.
+ *
+ * So `npx` is not used. Tools are resolved to an entrypoint on disk, and a tool
+ * that cannot be found is an error rather than a download.
+ */
+export function resolveSpawn(
+  command: string,
+  args: string[],
+  options: { sandboxRoot?: string; platform?: NodeJS.Platform } = {},
+): { command: string; args: string[] } {
+  const platform = options.platform ?? process.platform;
+
+  if (command === "npx") {
+    const [tool, ...rest] = args;
+    const roots = [...(options.sandboxRoot ? [options.sandboxRoot] : []), process.cwd()];
+    const entrypoint = tool ? findToolEntrypoint(tool, roots) : null;
+
+    if (!entrypoint) {
+      throw new SandboxToolError(
+        `"${tool ?? "npx"}" is not an installed build tool. The sandbox never fetches one from the registry.`,
+      );
+    }
+    return { command: process.execPath, args: [entrypoint, ...rest] };
+  }
+
+  // npm itself is still needed to install a project's dependencies.
+  if (command === "npm" && platform === "win32") {
+    const cli = join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+    if (existsSync(cli)) return { command: process.execPath, args: [cli, ...args] };
+  }
+
+  return { command, args };
+}
+
+/**
+ * Kills a process and everything it started.
+ *
+ * npm spawns children that outlive it, so killing the direct child alone leaves
+ * an install running against a directory we are about to delete. POSIX gets the
+ * process group; Windows has no such thing, so taskkill walks the tree.
+ */
+function killTree(child: { pid?: number; kill: (signal: NodeJS.Signals) => boolean }): void {
+  if (!child.pid) return;
+
+  if (process.platform === "win32") {
+    try {
+      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+      return;
+    } catch {
+      child.kill("SIGKILL");
+      return;
+    }
+  }
+
+  try {
+    // Negative pid kills the group, not just the direct child.
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    child.kill("SIGKILL");
+  }
+}
+
 export class LocalSandbox implements Sandbox {
   private constructor(
     readonly root: string,
@@ -152,11 +272,32 @@ export class LocalSandbox implements Sandbox {
     const started = Date.now();
 
     return new Promise((resolvePromise) => {
-      const child = spawn(command, args, {
+      let spawned: { command: string; args: string[] };
+      try {
+        spawned = resolveSpawn(command, args, { sandboxRoot: this.root });
+      } catch (error) {
+        // Surfaced as a failed command rather than thrown: the pipeline reports
+        // a phase that could not run the same way it reports one that failed.
+        resolvePromise({
+          phase,
+          command: `${command} ${args.join(" ")}`.trim(),
+          exitCode: null,
+          stdout: "",
+          stderr: error instanceof Error ? error.message : "The command could not be resolved.",
+          durationMs: Date.now() - started,
+          timedOut: false,
+          truncated: false,
+        });
+        return;
+      }
+
+      const child = spawn(spawned.command, spawned.args, {
         cwd: this.root,
         env: sandboxEnv(this.root),
         shell: false,
-        detached: true,
+        // Windows has no process groups, and detaching there orphans the child
+        // from the kill path below rather than helping it.
+        detached: process.platform !== "win32",
         stdio: ["ignore", "pipe", "pipe"],
       });
 
@@ -184,12 +325,7 @@ export class LocalSandbox implements Sandbox {
 
       const timer = setTimeout(() => {
         timedOut = true;
-        try {
-          // Negative pid kills the group, not just the direct child.
-          if (child.pid) process.kill(-child.pid, "SIGKILL");
-        } catch {
-          child.kill("SIGKILL");
-        }
+        killTree(child);
       }, this.limits.timeoutMs);
 
       const finish = (exitCode: number | null) => {
@@ -246,6 +382,8 @@ export interface BuildPipelineStep {
 export function defaultPipeline(): BuildPipelineStep[] {
   return [
     { phase: "install", command: "npm", args: ["install", "--ignore-scripts", "--no-audit", "--no-fund"] },
+    // `npx` is never used: see resolveSpawn. In an empty sandbox it downloads
+    // whatever package happens to carry the tool's name and runs it.
     { phase: "typecheck", command: "npx", args: ["tsc", "--noEmit"] },
     { phase: "lint", command: "npx", args: ["eslint", ".", "--max-warnings", "50"], optional: true },
     { phase: "build", command: "npm", args: ["run", "build"] },

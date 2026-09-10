@@ -55,9 +55,20 @@ export function languageFor(path: string): string | null {
  */
 export function isSafePath(path: string): boolean {
   if (!path || path.length > 400) return false;
-  if (path.startsWith("/") || path.startsWith("\\")) return false;
+  if (path.startsWith("/")) return false;
   if (/^[a-zA-Z]:/.test(path)) return false;
-  if (path.includes("\0")) return false;
+
+  // Backslashes are rejected outright rather than treated as separators. Only
+  // "/" is split on below, so `a\..\..\b` passed as one harmless-looking segment
+  // — and then resolved as a traversal on Windows, where the backslash *is* a
+  // separator. A generated project has no legitimate use for one in a path, so
+  // there is nothing to weigh against closing it.
+  if (path.includes("\\")) return false;
+
+  // Control characters, not only NUL. A newline or an escape sequence in a path
+  // is either an attempt at something or a bug, and neither should reach a
+  // filesystem.
+  if (/[\u0000-\u001f\u007f]/.test(path)) return false;
 
   const segments = path.split("/");
   return segments.every((segment) => segment !== ".." && segment !== "." && segment.trim() !== "");

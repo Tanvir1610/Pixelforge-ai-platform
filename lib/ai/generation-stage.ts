@@ -23,6 +23,14 @@ export interface GenerationStageInput {
   organizationId: string;
   projectId: string;
   runId: string;
+  /**
+   * The user this generation runs on behalf of.
+   *
+   * The stage writes with the service role, so the database has no JWT to
+   * authorise against. Naming the actor is what keeps a worker from being a way
+   * into another tenant's project.
+   */
+  actorUserId: string;
   /** Hard ceiling on repair passes, so a model that cannot fix its own output
    *  cannot spend a user's entire credit balance trying (§24). */
   maxRepairAttempts?: number;
@@ -50,7 +58,7 @@ const USER_MESSAGE: Record<string, string> = {
 };
 
 export async function runGenerationStage(input: GenerationStageInput): Promise<GenerationStageOutcome> {
-  const { organizationId, projectId, runId } = input;
+  const { organizationId, projectId, runId, actorUserId } = input;
   const maxRepairAttempts = input.maxRepairAttempts ?? 2;
 
   bootstrapProviders();
@@ -116,6 +124,7 @@ export async function runGenerationStage(input: GenerationStageInput): Promise<G
 
     let version = await writeVersion({
       projectId,
+      actorUserId,
       files: [...written].map(([path, content]) => ({ path, content })),
       label: "AI generation",
       summary: `Generated ${written.size} files across ${architecture.buildOrder.length} steps.`,
@@ -183,6 +192,7 @@ export async function runGenerationStage(input: GenerationStageInput): Promise<G
 
       version = await writeVersion({
         projectId,
+        actorUserId,
         files: [...written].map(([path, content]) => ({ path, content })),
         label: `Repair ${repairAttempts}`,
         summary: `Fixed ${build.errors.length} build errors.`,

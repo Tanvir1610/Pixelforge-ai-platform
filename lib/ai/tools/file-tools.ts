@@ -26,6 +26,22 @@ const searchInput = z.object({
   limit: z.number().int().min(1).max(50).default(20),
 });
 
+/**
+ * Escapes LIKE metacharacters.
+ *
+ * `%` and `_` are wildcards to Postgres but literal characters to whoever typed
+ * the query. Unescaped, a search for "%" matched every file in the version and
+ * returned all of them — a whole project's source through a tool meant to
+ * return line hits.
+ *
+ * `*` is dropped rather than escaped: PostgREST rewrites it to `%` while
+ * building the filter, after any escaping we could apply, so it is the one
+ * metacharacter that cannot be quoted through.
+ */
+export function escapeLike(query: string): string {
+  return query.replace(/\*/g, "").replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
 const jsonSchema = (properties: Record<string, unknown>, required: string[] = []) => ({
   type: "object",
   properties,
@@ -103,7 +119,7 @@ registerTool({
       .select("path, content")
       .eq("code_version_id", requireVersion(context))
       .neq("change_kind", "deleted")
-      .ilike("content", `%${input.query}%`)
+      .ilike("content", `%${escapeLike(input.query)}%`)
       .limit(input.limit);
 
     // Return locations, not whole files: the model can read what it needs next,
@@ -131,12 +147,86 @@ export interface StagedWrite {
   path: string;
   content: string;
   reason?: string;
+  /** Set by delete_file. An empty `content` alone is an ambiguous marker. */
+  deleted?: boolean;
 }
 
 const stagedByRun = new Map<string, Map<string, StagedWrite>>();
 
+/**
+ * Bounds on one run's staged set.
+ *
+ * The stage is an in-process map that outlives the step that filled it, so an
+ * agent looping on write_file could grow it until the process died — and a
+ * failed run left its entry behind for the lifetime of the server. These are
+ * generous against any real project and cheap against a runaway one.
+ */
+const MAX_STAGED_FILES = 2_000;
+const MAX_STAGED_BYTES = 32 * 1024 * 1024;
+/**
+ * How many runs' stages to keep at once.
+ *
+ * `clearStagedWrites` exists but nothing calls it, so a run that failed — or
+ * simply finished without the orchestrator tidying up — left its whole file set
+ * in memory for the lifetime of the process. A stage is only live during its own
+ * run, so evicting the oldest beyond this is safe and does not depend on anyone
+ * remembering to clean up.
+ */
+const MAX_TRACKED_RUNS = 16;
+
 function stageKey(context: ToolContext): string {
   return context.generationRunId ?? `${context.projectId}:adhoc`;
+}
+
+function stagedBytes(staged: Map<string, StagedWrite>): number {
+  let total = 0;
+  for (const write of staged.values()) total += Buffer.byteLength(write.content, "utf8");
+  return total;
+}
+
+/**
+ * Stages one write, refusing to grow past the bounds above.
+ *
+ * The check runs against the set the write would produce, not the set before
+ * it, so replacing a file with a smaller one is always allowed even at the
+ * ceiling.
+ */
+function stage(context: ToolContext, write: StagedWrite): Map<string, StagedWrite> {
+  const key = stageKey(context);
+  const staged = stagedByRun.get(key) ?? new Map<string, StagedWrite>();
+
+  // Re-inserting moves this run to the end of the Map's insertion order, so the
+  // eviction below always drops the least recently written to.
+  stagedByRun.delete(key);
+
+  while (stagedByRun.size >= MAX_TRACKED_RUNS) {
+    const oldest = stagedByRun.keys().next();
+    if (oldest.done) break;
+    stagedByRun.delete(oldest.value);
+  }
+
+  const replacing = staged.get(write.path);
+  if (!replacing && staged.size >= MAX_STAGED_FILES) {
+    throw new ToolError(
+      "not_permitted",
+      `This step has already staged ${MAX_STAGED_FILES} files, which is the limit.`,
+    );
+  }
+
+  const delta =
+    Buffer.byteLength(write.content, "utf8") -
+    (replacing ? Buffer.byteLength(replacing.content, "utf8") : 0);
+
+  if (delta > 0 && stagedBytes(staged) + delta > MAX_STAGED_BYTES) {
+    throw new ToolError(
+      "not_permitted",
+      `This step has staged more than ${Math.round(MAX_STAGED_BYTES / (1024 * 1024))} MB, which is the limit.`,
+    );
+  }
+
+  staged.set(write.path, write);
+  stagedByRun.set(key, staged);
+  return staged;
 }
 
 export function stagedWrites(context: ToolContext): StagedWrite[] {
@@ -162,10 +252,7 @@ registerTool({
   ),
   async execute(context: ToolContext, input: z.infer<typeof writeInput>) {
     const path = requireSafePath(input.path);
-    const key = stageKey(context);
-    const staged = stagedByRun.get(key) ?? new Map<string, StagedWrite>();
-    staged.set(path, { path, content: input.content, reason: input.reason });
-    stagedByRun.set(key, staged);
+    const staged = stage(context, { path, content: input.content, reason: input.reason });
     return { path, bytes: Buffer.byteLength(input.content, "utf8"), staged: staged.size };
   },
   summarise: (input) => `staged ${input.path}${input.reason ? ` — ${input.reason}` : ""}`,
@@ -179,11 +266,10 @@ registerTool({
   jsonSchema: jsonSchema({ path: { type: "string" } }, ["path"]),
   async execute(context: ToolContext, input: z.infer<typeof pathInput>) {
     const path = requireSafePath(input.path);
-    const key = stageKey(context);
-    const staged = stagedByRun.get(key) ?? new Map<string, StagedWrite>();
-    // An empty staged content marks a deletion; the orchestrator separates them.
-    staged.set(path, { path, content: "", reason: "deleted" });
-    stagedByRun.set(key, staged);
+    // `deleted: true` marks the deletion, not the empty content: a write_file of
+    // an empty file is a legitimate thing to do and must not be read as a
+    // removal.
+    stage(context, { path, content: "", reason: "deleted", deleted: true });
     return { path, deleted: true };
   },
   summarise: (input) => `staged deletion of ${input.path}`,

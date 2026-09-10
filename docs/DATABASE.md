@@ -63,6 +63,13 @@ is never trusted (§42).
 policies can call them without recursing through the policies on the tables they
 read. All `STABLE`, so Postgres caches them per statement instead of once per row.
 
+`can_read_project_as(user, project)` and `can_write_project_as(user, project)`
+answer the same question for an explicit actor, and the two above are defined in
+terms of them. A worker holding the service role has no JWT, so `auth.uid()` is
+null and the plain predicates are false for it; passing the actor is how a
+background stage says who its work is for without the service role becoming a
+way into any tenant's project. Added in migration `0016`.
+
 They are defined in migration `0002`, after the tables they query: SQL-language
 functions are parsed at `CREATE` time, so defining them earlier fails.
 
@@ -72,7 +79,8 @@ functions are parsed at `CREATE` time, so defining them earlier fails.
 supabase migration new <name>     # create
 supabase db push                  # apply to the linked project
 npm run db:verify                 # apply to scratch Postgres + run RLS tests
-npx supabase gen types typescript --linked > lib/db/database.types.ts
+# lib/db/database.types.ts is hand-written, not generated - see its header.
+npm run typecheck
 ```
 
 Never edit an applied migration; add a new one.

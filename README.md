@@ -63,7 +63,8 @@ banner. To connect a real workspace:
 ```bash
 supabase link --project-ref <ref>
 supabase db push
-npx supabase gen types typescript --linked > lib/db/database.types.ts
+# lib/db/database.types.ts is hand-written, not generated - see its header.
+npm run typecheck
 ```
 
 ## Scripts
@@ -107,8 +108,8 @@ feature that does not exist.
 
 ```bash
 supabase link --project-ref dggzgtwwzbzvepejpchq
-npm run db:push          # applies all 7 migrations
-npm run db:types         # regenerates lib/db/database.types.ts
+npm run db:push          # applies all 16 migrations
+npm run typecheck        # database.types.ts is hand-written — see its header
 npm run check:supabase   # verifies schema, RLS and buckets
 ```
 

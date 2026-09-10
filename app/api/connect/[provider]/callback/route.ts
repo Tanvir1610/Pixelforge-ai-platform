@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { consumeState, exchangeCode, safeRedirect, saveCredential } from "@/lib/deploy/oauth";
+import { appOrigin, consumeState, exchangeCode, safeRedirect, saveCredential } from "@/lib/deploy/oauth";
 import type { ProviderKey } from "@/lib/deploy/types";
 
 const PROVIDERS = new Set<ProviderKey>(["vercel", "netlify", "cloudflare"]);
@@ -16,7 +16,11 @@ export async function GET(
   context: { params: Promise<{ provider: string }> },
 ) {
   const { provider } = await context.params;
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams, origin: requestOrigin } = new URL(request.url);
+
+  // Not the request's own origin: that is the Host header, and a proxy passes
+  // whatever it was given straight through.
+  const origin = appOrigin(requestOrigin);
 
   const fail = (reason: string) =>
     NextResponse.redirect(`${origin}/dashboard/deployments?connect_error=${reason}`);

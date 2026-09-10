@@ -77,10 +77,15 @@ export async function importFigmaFileAction(_prev: ImportState, formData: FormDa
       return { message: "Connect your Figma account before importing, or set FIGMA_PERSONAL_ACCESS_TOKEN locally." };
     }
 
+    // Opening the run FIRST is deliberate. It goes through the user's RLS-scoped
+    // client, so it is the step that proves this caller may touch this project.
+    // The service-role write below has no such check, and running it first let a
+    // developer in one organization set the status of any project in any other
+    // simply by posting its id.
+    const runId = await startAnalysisRun(parsed.data.projectId, "import");
+
     const supabase = createServiceClient();
     await supabase.from("projects").update({ status: "importing" }).eq("id", parsed.data.projectId);
-
-    const runId = await startAnalysisRun(parsed.data.projectId, "import");
 
     const outcome = await ingestFigmaFile({
       projectId: parsed.data.projectId,

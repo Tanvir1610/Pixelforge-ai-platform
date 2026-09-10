@@ -141,7 +141,7 @@ export function ChatPanel() {
               }
             }}
             placeholder="Make the feature cards stack sooner on tablet…"
-            className="resize-none bg-transparent text-[13.5px] outline-none placeholder:text-content-muted"
+            className="resize-none bg-transparent text-base outline-none placeholder:text-content-muted sm:text-[13.5px]"
           />
           <div className="flex items-center justify-between gap-2">
             <span className="flex flex-wrap gap-1.5">
