@@ -22,7 +22,16 @@ const FRAME_WIDTH: Record<DeviceKey, number> = { desktop: 900, tablet: 640, mobi
  * The core three-panel workspace. Once generation finishes the right rail hands
  * over to the assistant, which is the natural next action at that point.
  */
-export function PreviewWorkspace({ project }: { project: Project }) {
+export function PreviewWorkspace({
+  project,
+  assistantLive = false,
+  assistantHistory,
+}: {
+  project: Project;
+  /** True when a real project backs this screen, so the assistant can answer. */
+  assistantLive?: boolean;
+  assistantHistory?: { role: "user" | "assistant"; body: string }[];
+}) {
   const [device, setDevice] = React.useState<DeviceKey>("desktop");
   const [zoom, setZoom] = React.useState<Zoom>("75");
   // Null means "follow generation state"; an explicit choice by the user wins.
@@ -104,7 +113,7 @@ export function PreviewWorkspace({ project }: { project: Project }) {
               <GenerationPanel tasks={items} percent={percent} complete={complete} />
             </>
           ) : (
-            <ChatPanel />
+            <ChatPanel live={assistantLive} history={assistantHistory} />
           )}
         </aside>
 

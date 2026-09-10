@@ -3,6 +3,7 @@ import { AnalysisWorkspace } from "./analysis-workspace";
 import { requireSession } from "@/lib/auth/session";
 import { listProjects } from "@/lib/repositories/projects";
 import { getLatestRun } from "@/lib/repositories/generation";
+import { loadFramePreview } from "@/lib/repositories/design-read";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Analysing your design" };
@@ -20,7 +21,9 @@ export default async function AnalysisPage({
 
   // In demo mode there is no run to subscribe to, so the screen falls back to
   // the scripted sequence and says so.
-  const latest = session.demo || !project ? null : await getLatestRun(project.id);
+  const [latest, frame] = project && !session.demo
+    ? await Promise.all([getLatestRun(project.id), loadFramePreview(session, project.id)])
+    : [null, null];
   const runId = runParam ?? latest?.run.id ?? null;
 
   return (
@@ -29,6 +32,7 @@ export default async function AnalysisPage({
       runId={session.demo ? null : runId}
       initial={latest ?? undefined}
       demo={session.demo}
+      frame={frame}
     />
   );
 }

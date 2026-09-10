@@ -370,6 +370,18 @@ export type GeneratedFileRow = {
   created_at: string;
 };
 
+export type AiMessageRow = {
+  id: string;
+  project_id: string;
+  generation_run_id: string | null;
+  role: "user" | "assistant" | "system" | "tool";
+  content: string;
+  /** Structured findings the assistant proposes, before the user approves them. */
+  proposal: Json | null;
+  created_by: string | null;
+  created_at: string;
+};
+
 export type AiToolCallRow = {
   id: string;
   ai_message_id: string | null;
@@ -777,6 +789,12 @@ export type Database = {
         Row: GeneratedFileRow;
         Insert: Pick<GeneratedFileRow, "code_version_id" | "path" | "content_hash"> & Partial<GeneratedFileRow>;
         Update: Partial<GeneratedFileRow>;
+        Relationships: [];
+      };
+      ai_messages: {
+        Row: AiMessageRow;
+        Insert: Pick<AiMessageRow, "project_id" | "role" | "content"> & Partial<AiMessageRow>;
+        Update: Partial<AiMessageRow>;
         Relationships: [];
       };
       ai_tool_calls: {

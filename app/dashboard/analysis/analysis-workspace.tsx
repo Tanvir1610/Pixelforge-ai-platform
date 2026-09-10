@@ -11,17 +11,37 @@ import { Progress } from "@/components/ui/progress";
 import { StatusDot } from "@/components/ui/status";
 import { FigmaCanvas } from "@/components/preview/figma-canvas";
 import { MiniSite, ScaledSite } from "@/components/preview/mini-site";
+import { DesignPreview } from "@/components/preview/design-preview";
+import type { FramePreview } from "@/lib/repositories/design-read";
 import { useGenerationRun } from "@/hooks/use-generation-run";
 import { useSequence } from "@/hooks/use-sequence";
 import { ANALYSIS_STEPS } from "@/lib/data";
 import { cn } from "@/lib/utils";
 import type { GenerationRunRow, GenerationStepRow, RunStatus } from "@/lib/db/database.types";
 
-const REGIONS = [
+/**
+ * Region overlays for the scripted demo only.
+ *
+ * A real run labels what was actually detected, from the frame's own top-level
+ * nodes. These stood in for that on every run, real or not, so a live import of
+ * a component library was captioned "Navbar / Hero / Feature card x3".
+ */
+const SAMPLE_REGIONS = [
   { name: "Navbar", top: "52px", height: "44px" },
   { name: "Hero", top: "120px", height: "210px" },
   { name: "Feature card ×3", top: "360px", height: "120px" },
 ];
+
+/** Percentages, so an overlay tracks the preview at whatever scale it drew at. */
+function regionsFor(frame: FramePreview) {
+  return frame.regions.map((region) => ({
+    name: region.role ? `${region.name} · ${region.role}` : region.name,
+    top: `${(region.y / frame.height) * 100}%`,
+    height: `${Math.max(1.5, (region.height / frame.height) * 100)}%`,
+    left: `${(region.x / frame.width) * 100}%`,
+    right: `${Math.max(0, 100 - ((region.x + region.width) / frame.width) * 100)}%`,
+  }));
+}
 
 interface DisplayStep {
   id: string;
@@ -39,12 +59,14 @@ function toDotState(status: RunStatus): "pending" | "active" | "done" | "failed"
 }
 
 export function AnalysisWorkspace({
-  projectName, runId, initial, demo,
+  projectName, runId, initial, demo, frame,
 }: {
   projectName: string;
   runId: string | null;
   initial?: { run: GenerationRunRow; steps: GenerationStepRow[] };
   demo: boolean;
+  /** The imported frame. Absent before an import has produced one. */
+  frame?: FramePreview | null;
 }) {
   const live = useGenerationRun(runId, initial);
   // Demo mode has no run to watch, so the scripted sequence stands in.
@@ -90,10 +112,31 @@ export function AnalysisWorkspace({
       </header>
 
       <main id="main" className="grid flex-1 lg:grid-cols-[1fr_440px]">
-        <FigmaCanvas className="relative min-h-[320px] p-6 md:p-10" regions={REGIONS} scanning={!complete && !failed}>
-          <ScaledSite scale={1.6} height={420} className="border border-[#DADADA] shadow-lg">
-            <MiniSite brand={projectName.split(" ")[0]} headline="Ship your ideas without the rebuild." />
-          </ScaledSite>
+        {/* The real frame when there is one. The fabricated page is now only
+            what the scripted demo shows, and it says so underneath. */}
+        <FigmaCanvas
+          className="relative min-h-[320px] p-6 md:p-10"
+          regions={frame ? regionsFor(frame) : SAMPLE_REGIONS}
+          scanning={!complete && !failed}
+        >
+          {frame ? (
+            <div className="flex flex-col items-center gap-2">
+              <DesignPreview frame={frame} />
+              <p className="text-caption text-content-muted">
+                {frame.name} · {frame.width}×{frame.height}
+                {frame.frameCount > 1 && ` · ${frame.frameCount} frames imported`}
+                {" · "}
+                {frame.nodes.length} layers drawn
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              <ScaledSite scale={1.6} height={420} className="border border-[#DADADA] shadow-lg">
+                <MiniSite brand={projectName.split(" ")[0]} headline="Ship your ideas without the rebuild." />
+              </ScaledSite>
+              <p className="text-caption text-content-muted">Sample frame — import a design to see your own.</p>
+            </div>
+          )}
         </FigmaCanvas>
 
         <aside className="flex flex-col border-t border-border bg-bg-surface lg:border-l lg:border-t-0">

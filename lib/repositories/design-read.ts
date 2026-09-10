@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import type { DesignNodeRow, DesignTokenRow } from "@/lib/db/database.types";
+import type { DesignNodeRow, DesignTokenRow, FigmaFrameRow } from "@/lib/db/database.types";
 import type { DesignDocument, IrNode } from "@/lib/design-ir/types";
 import type { Session } from "@/lib/auth/session";
 
@@ -83,6 +83,135 @@ export async function getDesignSummary(session: Session, projectId: string): Pro
  */
 function fromJson<T>(value: unknown, fallback: T): T {
   return (value ?? fallback) as T;
+}
+
+/**
+ * A real frame, for the analysis screen to draw.
+ *
+ * That screen used to render a fabricated marketing page with three invented
+ * region labels — "Navbar", "Hero", "Feature card x3" — over the top of a live
+ * progress list. So the steps were the user's and the picture beside them was
+ * somebody else's, which is a worse lie than showing nothing.
+ *
+ * Geometry and paint only: enough to draw the frame recognisably, and nothing
+ * that would need the original file fetched again.
+ */
+export interface PreviewNode {
+  id: string;
+  name: string;
+  type: string;
+  role: string | null;
+  depth: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  background: string | null;
+  borderColor: string | null;
+  borderRadius: number;
+  text: string | null;
+  textColor: string | null;
+  fontSize: number | null;
+  fontWeight: number | null;
+}
+
+export interface FramePreview {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  nodes: PreviewNode[];
+  /** Top-level children, which is what the region overlay labels. */
+  regions: { id: string; name: string; role: string | null; x: number; y: number; width: number; height: number }[];
+  frameCount: number;
+}
+
+type PreviewNodeRow = Pick<
+  DesignNodeRow,
+  | "id" | "name" | "ir_type" | "semantic_role" | "depth" | "x" | "y" | "width" | "height"
+  | "background_color" | "border_color" | "border_radius" | "text_content" | "text_color"
+  | "font_size" | "font_weight"
+>;
+
+/** How deep to draw. Past this a frame is detail the overview cannot show. */
+const PREVIEW_MAX_DEPTH = 4;
+const PREVIEW_MAX_NODES = 400;
+
+export async function loadFramePreview(session: Session, projectId: string): Promise<FramePreview | null> {
+  if (session.demo) return null;
+
+  const supabase = await createClient();
+  if (!supabase) return null;
+
+  // The widest frame, which is the one a desktop layout lives in.
+  const { data: frames } = await supabase
+    .from("figma_frames")
+    .select("id, name, width, height")
+    .eq("project_id", projectId)
+    .order("width", { ascending: false })
+    .overrideTypes<Pick<FigmaFrameRow, "id" | "name" | "width" | "height">[]>();
+
+  const frame = frames?.[0];
+  if (!frame) return null;
+
+  // The column list is concatenated for readability, which defeats supabase-js's
+  // static parsing of it, so the row shape is stated instead.
+  const { data: rows } = await supabase
+    .from("design_nodes")
+    .select(
+      "id, name, ir_type, semantic_role, depth, x, y, width, height, " +
+        "background_color, border_color, border_radius, text_content, text_color, font_size, font_weight",
+    )
+    .eq("figma_frame_id", frame.id)
+    .lte("depth", PREVIEW_MAX_DEPTH)
+    .order("depth")
+    .order("order_index")
+    .limit(PREVIEW_MAX_NODES)
+    .overrideTypes<PreviewNodeRow[]>();
+
+  const nodes: PreviewNode[] = (rows ?? [])
+    // Zero-sized nodes draw nothing and only cost a DOM element.
+    .filter((row) => Number(row.width ?? 0) > 0 && Number(row.height ?? 0) > 0)
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      type: row.ir_type,
+      role: row.semantic_role,
+      depth: row.depth,
+      x: Number(row.x ?? 0),
+      y: Number(row.y ?? 0),
+      width: Number(row.width ?? 0),
+      height: Number(row.height ?? 0),
+      background: row.background_color,
+      borderColor: row.border_color,
+      borderRadius: Number(row.border_radius ?? 0),
+      text: row.text_content,
+      textColor: row.text_color,
+      fontSize: row.font_size === null ? null : Number(row.font_size),
+      fontWeight: row.font_weight === null ? null : Number(row.font_weight),
+    }));
+
+  return {
+    id: frame.id,
+    name: frame.name,
+    width: Number(frame.width) || 1440,
+    height: Number(frame.height) || 900,
+    nodes,
+    regions: nodes
+      .filter((node) => node.depth === 1)
+      .sort((a, b) => a.y - b.y)
+      .slice(0, 12)
+      .map((node) => ({
+        id: node.id,
+        name: node.name,
+        role: node.role,
+        x: node.x,
+        y: node.y,
+        width: node.width,
+        height: node.height,
+      })),
+    frameCount: frames?.length ?? 1,
+  };
 }
 
 export async function loadDesignDocument(projectId: string): Promise<DesignDocument | null> {

@@ -7,43 +7,93 @@ import { Avatar } from "@/components/ui/avatar";
 import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { INITIAL_CHAT } from "@/lib/data";
+import { askAssistantAction } from "@/lib/actions/assistant";
 import type { ChatMessage } from "@/types";
 
 /**
  * The refinement assistant. It reads as a code reviewer rather than a chat bot:
  * findings are scoped to named files and nothing is applied without approval.
+ *
+ * `live` decides whether it talks to the model. It used to reply from a
+ * setTimeout with a fixed sentence — "Applied. Hero now matches at 99%." — to
+ * anything at all, including an empty project, which reported work nobody had
+ * done. Without a project or a provider the scripted thread still stands in,
+ * and says so.
  */
-export function ChatPanel() {
-  const [messages, setMessages] = React.useState<ChatMessage[]>(INITIAL_CHAT);
+export function ChatPanel({
+  live = false,
+  history,
+}: {
+  live?: boolean;
+  history?: { role: "user" | "assistant"; body: string }[];
+}) {
+  const [messages, setMessages] = React.useState<ChatMessage[]>(() => {
+    if (!live) return INITIAL_CHAT;
+    return (history ?? []).map((entry, index) => ({
+      id: `h${index}`,
+      role: entry.role,
+      body: entry.body,
+    }));
+  });
   const [draft, setDraft] = React.useState("");
   const [thinking, setThinking] = React.useState(false);
   const logRef = React.useRef<HTMLDivElement>(null);
+  const messagesRef = React.useRef(messages);
+  React.useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   React.useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, thinking]);
 
-  function send(event: React.FormEvent) {
+  async function send(event: React.FormEvent) {
     event.preventDefault();
     const text = draft.trim();
     if (!text) return;
+
     const id = `m${Date.now()}`;
-    setMessages((current) => [...current, { id, role: "user", body: text }]);
+    const asked: ChatMessage = { id, role: "user", body: text };
+    setMessages((current) => [...current, asked]);
     setDraft("");
     setThinking(true);
-    window.setTimeout(() => {
-      setThinking(false);
-      setMessages((current) => [
-        ...current,
-        {
-          id: `${id}-reply`,
-          role: "assistant",
-          body: "Applied. Hero now matches at 99%. Button group uses items-start at every breakpoint.",
-          status: "2 files updated · preview rebuilt in 1.4s",
-          actions: true,
-        },
-      ]);
-    }, 1200);
+
+    if (!live) {
+      // The scripted thread, kept only for the seeded demo. It answers with the
+      // fact that it is not answering.
+      window.setTimeout(() => {
+        setThinking(false);
+        setMessages((current) => [
+          ...current,
+          {
+            id: `${id}-reply`,
+            role: "assistant",
+            body: "This is sample data, so I can't look at a real project. Import a design and set an AI provider to ask about your own.",
+          },
+        ]);
+      }, 600);
+      return;
+    }
+
+    // Sent with the thread so far, so a follow-up question keeps its referent.
+    const priorTurns = messagesRef.current
+      .filter((message) => message.role === "user" || message.role === "assistant")
+      .map((message) => ({ role: message.role as "user" | "assistant", body: message.body }));
+
+    const reply = await askAssistantAction({ prompt: text, history: priorTurns });
+
+    setThinking(false);
+    setMessages((current) => [
+      ...current,
+      {
+        id: `${id}-reply`,
+        role: "assistant",
+        body: reply.message,
+        // Real provenance: which model, how many tokens, how long. An assistant
+        // that hides what it spent is one nobody can audit.
+        status: reply.status,
+      },
+    ]);
   }
 
   function apply(messageId: string) {

@@ -119,6 +119,13 @@ export async function GET() {
             : "No payment method is configured. UPI needs UPI_PAYEE_VPA and UPI_PAYEE_NAME; the gateway needs RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET. Neither NEXT_PUBLIC_ nor the rest take effect until a build runs.",
       },
       figma,
+      // The assistant and every agent depend on this; without it they can only
+      // report that they cannot answer.
+      inference: {
+        anthropicKey: describe(process.env.ANTHROPIC_API_KEY),
+        openaiKey: describe(process.env.OPENAI_API_KEY),
+        usable: Boolean(process.env.ANTHROPIC_API_KEY),
+      },
       // Presence only. No value is ever returned from here.
       variables: {
         NEXT_PUBLIC_SUPABASE_URL: url,
