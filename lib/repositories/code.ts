@@ -231,6 +231,76 @@ export interface VersionSummary {
   createdAt: string;
 }
 
+export interface GeneratedFileSummary {
+  path: string;
+  language: string | null;
+  bytes: number;
+  content: string | null;
+}
+
+export interface LatestCodeVersion {
+  versionId: string;
+  versionNumber: number;
+  label: string | null;
+  summary: string | null;
+  createdAt: string;
+  files: GeneratedFileSummary[];
+}
+
+/**
+ * The newest version's file set, for the code screen.
+ *
+ * That screen rendered four fixed files from a fixtures module, so a project
+ * that had generated nothing showed a finished Next.js app, and one that had
+ * generated something showed the fixtures anyway.
+ *
+ * Inline content only. A file past the inline limit lives in object storage and
+ * is fetched on demand by `readFile`; pulling every one of them here would make
+ * opening the screen proportional to the size of the project.
+ */
+export async function getLatestVersionFiles(projectId: string): Promise<LatestCodeVersion | null> {
+  const supabase = await createClient();
+  if (!supabase) return null;
+
+  const { data: generated } = await supabase
+    .from("generated_projects")
+    .select("id, code_versions(id, version_number, label, summary, created_at)")
+    .eq("project_id", projectId)
+    .maybeSingle<{
+      id: string;
+      code_versions: {
+        id: string; version_number: number; label: string | null;
+        summary: string | null; created_at: string;
+      }[];
+    }>();
+
+  const versions = generated?.code_versions ?? [];
+  if (versions.length === 0) return null;
+
+  const latest = [...versions].sort((a, b) => b.version_number - a.version_number)[0];
+
+  const { data: files } = await supabase
+    .from("generated_files")
+    .select("path, language, bytes, content")
+    .eq("code_version_id", latest.id)
+    .neq("change_kind", "deleted")
+    .order("path");
+
+  return {
+    versionId: latest.id,
+    versionNumber: latest.version_number,
+    label: latest.label,
+    summary: latest.summary,
+    createdAt: latest.created_at,
+    files: (files ?? []).map((file) => ({
+      path: file.path,
+      language: file.language,
+      bytes: file.bytes,
+      content: file.content,
+    })),
+  };
+}
+
 /** Version history, newest first. Read under the caller's JWT, so RLS applies. */
 export async function listVersions(projectId: string, limit = 20): Promise<VersionSummary[]> {
   const supabase = await createClient();

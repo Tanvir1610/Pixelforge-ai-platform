@@ -20,14 +20,20 @@ export const ANALYSIS_STEPS: [string, string][] = [
  * to the instant the user clicks Import. Authorisation happens inside the
  * function via can_write_project.
  */
-export async function startAnalysisRun(projectId: string, trigger: GenerationTrigger = "import"): Promise<string> {
+export async function startAnalysisRun(
+  projectId: string,
+  trigger: GenerationTrigger = "import",
+  // Which stage's steps to open the run with. Planning and generation have
+  // their own; defaulting to the analysis list keeps every existing caller.
+  steps: [string, string][] = ANALYSIS_STEPS,
+): Promise<string> {
   const supabase = await createClient();
   if (!supabase) throw new Error("Supabase is not configured.");
 
   const { data, error } = await supabase.rpc("start_generation_run", {
     p_project_id: projectId,
     p_trigger: trigger,
-    p_steps: ANALYSIS_STEPS,
+    p_steps: steps,
   });
 
   if (error) {

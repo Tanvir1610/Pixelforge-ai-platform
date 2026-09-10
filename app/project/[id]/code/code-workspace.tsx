@@ -8,8 +8,19 @@ import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/components/sections/code-block";
 import { EditorTabs } from "@/components/sections/editor-tabs";
 import { CODE_FILES } from "@/lib/data";
+import type { LatestCodeVersion } from "@/lib/repositories/code";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
+
+/** Named, because a literal escape here has been mangled by tooling before. */
+const NEWLINE = String.fromCharCode(10);
+
+/** Swatch colour per file kind, matching the fixture tree's vocabulary. */
+function kindOf(path: string): "dir" | "file" | "css" | "ts" {
+  if (path.endsWith(".css") || path.endsWith(".scss")) return "css";
+  if (path.endsWith(".ts") || path.endsWith(".json")) return "ts";
+  return "file";
+}
 
 const TREE = [
   { name: "app", type: "dir" as const },
@@ -35,9 +46,48 @@ const AI_ACTIONS = [
 
 const OPEN_FILES = ["page.tsx", "Hero.tsx", "globals.css"];
 
-export function CodeWorkspace({ project }: { project: Project }) {
-  const [activeFile, setActiveFile] = React.useState("page.tsx");
-  const source = CODE_FILES[activeFile] ?? CODE_FILES["page.tsx"];
+/**
+ * Real generated files when the project has any, the fixture set otherwise.
+ *
+ * This screen rendered four fixed files regardless, so a project that had
+ * generated nothing showed a finished Next.js app.
+ */
+export function CodeWorkspace({
+  project,
+  version,
+}: {
+  project: Project;
+  version?: LatestCodeVersion | null;
+}) {
+  const live = Boolean(version && version.files.length > 0);
+
+  const tree = React.useMemo(
+    () =>
+      live
+        ? version!.files.map((file) => ({
+            name: file.path.split("/").pop() ?? file.path,
+            type: kindOf(file.path),
+            file: file.path,
+            indent: file.path.includes("/"),
+          }))
+        : TREE,
+    [live, version],
+  );
+
+  const [activeFile, setActiveFile] = React.useState(
+    () => (live ? (version!.files[0]?.path ?? "page.tsx") : "page.tsx"),
+  );
+
+  const source = React.useMemo(() => {
+    if (!live) return CODE_FILES[activeFile] ?? CODE_FILES["page.tsx"];
+
+    const file = version!.files.find((entry) => entry.path === activeFile) ?? version!.files[0];
+    return {
+      language: file?.language ?? "typescript",
+      // Content is null for a file held in object storage rather than inline.
+      lines: (file?.content ?? "// Stored outside the row — open it from the version history.").split(NEWLINE),
+    };
+  }, [live, version, activeFile]);
 
   return (
     <WorkspaceShell
@@ -52,10 +102,10 @@ export function CodeWorkspace({ project }: { project: Project }) {
       <div className="grid h-full min-h-0 bg-bg-dark lg:grid-cols-[240px_1fr_260px]">
         <nav aria-label="Files" className="hidden min-h-0 overflow-y-auto border-r border-border-dark py-2 scrollbar-thin lg:block">
           <h2 className="px-4 pb-1 pt-2.5 text-[11px] font-semibold text-[#6B7280]">
-            {project.id}-marketing
+            {live ? `${project.name} · v${version!.versionNumber}` : `${project.id}-marketing`}
           </h2>
           <ul>
-            {TREE.map((node) => {
+            {tree.map((node) => {
               const active = node.file === activeFile;
               return (
                 <li key={node.name}>
@@ -90,16 +140,35 @@ export function CodeWorkspace({ project }: { project: Project }) {
         </nav>
 
         <main id="main" className="flex min-h-0 min-w-0 flex-col">
-          <EditorTabs files={OPEN_FILES} active={activeFile} onSelect={setActiveFile} />
+          <EditorTabs
+            files={live ? version!.files.slice(0, 3).map((file) => file.path) : OPEN_FILES}
+            active={activeFile}
+            onSelect={setActiveFile}
+          />
           <CodeBlock lines={source.lines} className="min-h-0 flex-1" />
+          {/* Never claims a build. Generation on this deployment does not compile
+              anything, and a green "Build successful" over uncompiled output is
+              the most misleading thing this screen could say. */}
           <div className="flex h-7 shrink-0 items-center gap-4 overflow-x-auto border-t border-border-dark bg-bg-dark-2 px-4 font-mono text-[11px] text-[#9CA3AF]">
-            <span className="flex shrink-0 items-center gap-1.5 text-[#86EFAC]">
-              <Check aria-hidden className="h-3 w-3" strokeWidth={3} />
-              Build successful
-            </span>
-            <span className="shrink-0">TypeScript · no errors</span>
-            <span className="shrink-0">Ln 22, Col 41</span>
-            <span className="ml-auto hidden shrink-0 md:inline">Prettier · 2 spaces · UTF-8</span>
+            {live ? (
+              <>
+                <span className="flex shrink-0 items-center gap-1.5 text-[#FCD34D]">
+                  <AlertTriangle aria-hidden className="h-3 w-3" />
+                  Not compiled
+                </span>
+                <span className="shrink-0">{version!.files.length} files · v{version!.versionNumber}</span>
+                <span className="ml-auto hidden shrink-0 md:inline">Generated · not yet built</span>
+              </>
+            ) : (
+              <>
+                <span className="flex shrink-0 items-center gap-1.5 text-[#86EFAC]">
+                  <Check aria-hidden className="h-3 w-3" strokeWidth={3} />
+                  Build successful
+                </span>
+                <span className="shrink-0">Sample project</span>
+                <span className="ml-auto hidden shrink-0 md:inline">Prettier · 2 spaces · UTF-8</span>
+              </>
+            )}
           </div>
         </main>
 
@@ -128,16 +197,31 @@ export function CodeWorkspace({ project }: { project: Project }) {
           </div>
 
           <div className="mt-auto rounded-[10px] border border-[#2E2E2E] p-3 text-caption">
-            <p className="mb-1.5 flex items-center gap-2 text-body-sm font-medium text-[#86EFAC]">
-              <Check aria-hidden className="h-4 w-4" strokeWidth={3} />
-              Build successful
+            <p className={cn(
+              "mb-1.5 flex items-center gap-2 text-body-sm font-medium",
+              live ? "text-[#FCD34D]" : "text-[#86EFAC]",
+            )}>
+              {live ? <AlertTriangle aria-hidden className="h-4 w-4" /> : <Check aria-hidden className="h-4 w-4" strokeWidth={3} />}
+              {live ? "Not compiled" : "Build successful"}
             </p>
             <p className="font-mono text-[11px] leading-relaxed text-[#9CA3AF]">
-              next build · 8.2s
-              <br />
-              4 routes · 0 warnings
-              <br />
-              First load JS 96 kB
+              {live ? (
+                <>
+                  {version!.files.length} files · v{version!.versionNumber}
+                  <br />
+                  {version!.label ?? "generated"}
+                  <br />
+                  no sandbox on this deployment
+                </>
+              ) : (
+                <>
+                  next build · 8.2s
+                  <br />
+                  4 routes · 0 warnings
+                  <br />
+                  First load JS 96 kB
+                </>
+              )}
             </p>
           </div>
         </aside>

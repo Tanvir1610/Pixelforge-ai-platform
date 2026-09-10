@@ -12,6 +12,7 @@ import { DESIGN_TOKENS, DETECTED_COMPONENTS } from "@/lib/data";
 import { UnderstandingNav } from "./understanding-nav";
 import { AnalysisSummary } from "./analysis-summary";
 import { requireSession } from "@/lib/auth/session";
+import { GenerateButton } from "@/components/ai/generate-button";
 import { listProjects } from "@/lib/repositories/projects";
 import { getLatestArtifact } from "@/lib/repositories/artifacts";
 import { isInferenceConfigured } from "@/lib/ai/bootstrap";
@@ -72,6 +73,13 @@ function Panel({ id, title, badge, children }: {
   );
 }
 
+/**
+ * Generation runs from here, and each model call is a request of its own, so
+ * the ceiling has to allow for one planner call rather than the platform's
+ * default few seconds. The client asks for each build step separately.
+ */
+export const maxDuration = 300;
+
 export default async function UnderstandingPage() {
   const session = await requireSession();
   const projects = session.demo ? [] : await listProjects(session, 1);
@@ -91,24 +99,34 @@ export default async function UnderstandingPage() {
         : undefined;
 
   return (
-    <AppShell crumbs={["Northwind marketing", "Design understanding"]}>
+    <AppShell crumbs={[project?.name ?? "Projects", "Design understanding"]}>
       <PageHeading
         title="What we found in your design"
         description="Review before generating. Correcting a mapping here saves a refinement pass later."
         actions={
           <>
-            <Badge tone="success" dot className="mr-1">Analysis complete · 1m 12s</Badge>
+            {analysis && <Badge tone="success" dot className="mr-1">Analysis complete</Badge>}
             <button type="button" className={buttonClasses("secondary", "sm")}>
               <RotateCw />
               Re-analyse
             </button>
-            <Link href="/project/northwind/preview" className={buttonClasses("primary", "sm")}>
-              Generate code
+            {/* Was a link to /project/northwind/preview — a sample route that
+                generated nothing. It now runs the pipeline. */}
+            <Link
+              href={project ? `/project/${project.id}/code` : "/dashboard/import"}
+              className={buttonClasses("secondary", "sm")}
+            >
+              View code
               <ArrowRight />
             </Link>
           </>
         }
       />
+
+      {/* The control that actually runs the pipeline. */}
+      <div className="mb-6 max-w-[420px]">
+        <GenerateButton canGenerate={Boolean(project && analysis)} />
+      </div>
 
       <div className="grid gap-8 lg:grid-cols-[200px_1fr]">
         <UnderstandingNav />
