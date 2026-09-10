@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPublicEnv, SupabaseConfigError } from "@/lib/supabase/env";
+import { isUpiConfigured } from "@/lib/payments/upi";
 
 /**
  * Deployment diagnostics.
@@ -54,11 +55,49 @@ export async function GET() {
           ? "The service-role key is visible but neither NEXT_PUBLIC_ variable is. NEXT_PUBLIC_ values are inlined at build time, so this is what a deployment looks like when the variables were added after the last build, or scoped to a different environment. Redeploy."
           : "Set both NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, then redeploy.";
 
+  // Payments have the same failure mode as Supabase did: a button that reports
+  // "not configured" and no way from outside to see which variable is missing.
+  const upi = {
+    payeeVpa: describe(process.env.UPI_PAYEE_VPA),
+    payeeName: describe(process.env.UPI_PAYEE_NAME),
+    operators: describe(process.env.PLATFORM_ADMIN_EMAILS),
+    // False when a variable is missing *or* the VPA is malformed, which are
+    // different problems with the same symptom.
+    usable: isUpiConfigured(),
+  };
+
+  const razorpay = {
+    keyId: describe(process.env.RAZORPAY_KEY_ID),
+    publicKeyId: describe(process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID),
+    keySecret: describe(process.env.RAZORPAY_KEY_SECRET),
+    webhookSecret: describe(process.env.RAZORPAY_WEBHOOK_SECRET),
+    usable: Boolean(
+      (process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID) &&
+        process.env.RAZORPAY_KEY_SECRET,
+    ),
+  };
+
+  const figma = {
+    clientId: describe(process.env.FIGMA_CLIENT_ID),
+    clientSecret: describe(process.env.FIGMA_CLIENT_SECRET),
+    usable: Boolean(process.env.FIGMA_CLIENT_ID && process.env.FIGMA_CLIENT_SECRET),
+  };
+
   return NextResponse.json(
     {
       configured,
       problem,
       hint,
+      payments: {
+        upi,
+        razorpay,
+        anyUsable: upi.usable || razorpay.usable,
+        hint:
+          upi.usable || razorpay.usable
+            ? null
+            : "No payment method is configured. UPI needs UPI_PAYEE_VPA and UPI_PAYEE_NAME; the gateway needs RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET. Neither NEXT_PUBLIC_ nor the rest take effect until a build runs.",
+      },
+      figma,
       // Presence only. No value is ever returned from here.
       variables: {
         NEXT_PUBLIC_SUPABASE_URL: url,
