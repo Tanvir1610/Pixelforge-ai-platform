@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Banner } from "@/components/ui/banner";
 import { buttonClasses } from "@/components/ui/button";
 import { DESIGN_TOKENS, DETECTED_COMPONENTS } from "@/lib/data";
+import { getDesignSummary } from "@/lib/repositories/design-read";
 import { UnderstandingNav } from "./understanding-nav";
 import { AnalysisSummary } from "./analysis-summary";
 import { requireSession } from "@/lib/auth/session";
@@ -85,6 +86,42 @@ export default async function UnderstandingPage() {
   const projects = session.demo ? [] : await listProjects(session, 1);
   const project = projects[0] ?? null;
 
+  // Real detections and tokens, from what the import actually persisted.
+  const summary = project && !session.demo ? await getDesignSummary(session, project.id) : null;
+
+  /**
+   * Token rows carry a jsonb `value`, so each panel needs the shape it renders.
+   * Read defensively: these came out of a design file, not a schema we control.
+   */
+  const tokenValue = (value: unknown): Record<string, unknown> =>
+    value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+
+  const typographyTokens = (summary?.tokens ?? [])
+    .filter((token) => token.category === "typography")
+    .map((token) => {
+      const value = tokenValue(token.value);
+      const size = Number(value.fontSize ?? 16);
+      return {
+        name: token.name,
+        size: `${size}px`,
+        weight: Number(value.fontWeight ?? 400),
+        spec: `${size}px · ${value.fontFamily ?? "inherit"} ${value.fontWeight ?? 400}`,
+      };
+    });
+
+  const colourTokens = (summary?.tokens ?? [])
+    .filter((token) => token.category === "color")
+    .map((token) => {
+      const value = tokenValue(token.value);
+      return { name: token.name, hex: String(value.hex ?? value.value ?? "#000000") };
+    })
+    .filter((token) => /^#|^rgb|^hsl/.test(token.hex));
+
+  const spacingTokens = (summary?.tokens ?? [])
+    .filter((token) => token.category === "spacing")
+    .map((token) => `${Number(tokenValue(token.value).value ?? 0)}px`)
+    .filter((value) => value !== "0px");
+
   const analysis = project
     ? await getLatestArtifact<DesignAnalysis & { model?: string }>(project.id, "design_analysis")
     : null;
@@ -152,9 +189,20 @@ export default async function UnderstandingPage() {
             </ol>
           </Panel>
 
-          <Panel id="components" title="Components detected" badge="9 components">
+          <Panel
+            id="components"
+            title="Components detected"
+            badge={summary ? `${summary.components.length} components` : "9 components"}
+          >
             <ul className="grid gap-px bg-border sm:grid-cols-2 lg:grid-cols-3">
-              {DETECTED_COMPONENTS.map((component) => {
+              {(summary
+                ? summary.components.map((component) => ({
+                    name: component.name,
+                    confidence: Math.round(component.confidence),
+                    icon: component.role ?? "component",
+                  }))
+                : DETECTED_COMPONENTS
+              ).map((component) => {
                 const Icon = ICONS[component.icon] ?? Boxes;
                 return (
                   <li key={component.name} className="flex items-center gap-3 bg-bg-surface px-4 py-3.5">
@@ -176,9 +224,13 @@ export default async function UnderstandingPage() {
             </ul>
           </Panel>
 
-          <Panel id="typography" title="Typography" badge="6 styles">
+          <Panel
+            id="typography"
+            title="Typography"
+            badge={summary ? `${typographyTokens.length} styles` : "6 styles"}
+          >
             <ul>
-              {DESIGN_TOKENS.typography.map((style) => (
+              {(summary ? typographyTokens : DESIGN_TOKENS.typography).map((style) => (
                 <li key={style.name} className="flex flex-wrap items-baseline justify-between gap-3 border-b border-border px-[18px] py-3 last:border-b-0">
                   <span
                     className="font-display tracking-[-0.02em]"
@@ -192,9 +244,13 @@ export default async function UnderstandingPage() {
             </ul>
           </Panel>
 
-          <Panel id="colours" title="Colours" badge="11 tokens">
+          <Panel
+            id="colours"
+            title="Colours"
+            badge={summary ? `${colourTokens.length} tokens` : "11 tokens"}
+          >
             <ul className="flex flex-wrap gap-2.5 px-[18px] py-4">
-              {DESIGN_TOKENS.colours.map((token) => (
+              {(summary ? colourTokens : DESIGN_TOKENS.colours).map((token) => (
                 <li key={token.name} className="w-24">
                   <span
                     aria-hidden
@@ -212,7 +268,7 @@ export default async function UnderstandingPage() {
             <Panel id="spacing" title="Spacing">
               <div className="px-[18px] py-4">
                 <ul className="flex flex-wrap items-end gap-3">
-                  {DESIGN_TOKENS.spacing.map((value) => (
+                  {(summary ? spacingTokens : DESIGN_TOKENS.spacing).map((value) => (
                     <li key={value} className="flex flex-col items-center gap-1.5 font-mono text-[11px] text-content-muted">
                       <span
                         aria-hidden

@@ -26,8 +26,11 @@ export function PreviewWorkspace({
   project,
   assistantLive = false,
   assistantHistory,
+  files,
 }: {
   project: Project;
+  /** Real generated file paths; absent for the sample project. */
+  files?: string[];
   /** True when a real project backs this screen, so the assistant can answer. */
   assistantLive?: boolean;
   assistantHistory?: { role: "user" | "assistant"; body: string }[];
@@ -60,7 +63,7 @@ export function PreviewWorkspace({
     >
       <div className="grid h-full min-h-0 lg:grid-cols-[240px_1fr_380px]">
         <div className="hidden min-h-0 lg:block">
-          <ProjectTree />
+          <ProjectTree files={files} />
         </div>
 
         <div className="flex min-h-0 min-w-0 flex-col bg-bg-subtle">

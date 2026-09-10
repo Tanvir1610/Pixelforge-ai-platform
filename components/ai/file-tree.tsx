@@ -19,8 +19,56 @@ function statusTone(status: string) {
   return "accent" as const;
 }
 
-/** Left rail of the generation workspace: what exists in the project right now. */
-export function ProjectTree({ activePage = "Home" }: { activePage?: string }) {
+/**
+ * Left rail of the generation workspace: what exists in the project right now.
+ *
+ * `files` are the real generated paths. Without them this listed four fixture
+ * pages and three token files for every project, including ones that had
+ * generated nothing at all.
+ */
+export function ProjectTree({
+  activePage = "Home",
+  files,
+}: {
+  activePage?: string;
+  files?: string[];
+}) {
+  if (files) {
+    const pages = files.filter((path) => /\.(tsx|jsx|html)$/.test(path));
+    const styles = files.filter((path) => /\.(css|scss)$/.test(path));
+
+    return (
+      <div className="flex h-full flex-col overflow-y-auto border-r border-border bg-bg-surface scrollbar-thin">
+        <h2 className="px-4 pb-1.5 pt-3.5 text-[11px] font-semibold text-content-muted">
+          Files ({files.length})
+        </h2>
+        {files.length === 0 ? (
+          <p className="px-4 py-3 text-caption text-content-muted">
+            Nothing generated yet. Run Generate code from Design understanding.
+          </p>
+        ) : (
+          <ul>
+            {[...pages, ...styles, ...files.filter((path) => !pages.includes(path) && !styles.includes(path))].map(
+              (path) => (
+                <li key={path}>
+                  <span className="flex items-center gap-2 px-4 py-1.5 text-body-sm text-content-secondary">
+                    <FileCode2 aria-hidden className="h-3.5 w-3.5 shrink-0 text-content-muted" />
+                    <span className="truncate" title={path}>{path}</span>
+                  </span>
+                </li>
+              ),
+            )}
+          </ul>
+        )}
+      </div>
+    );
+  }
+
+  return <SampleTree activePage={activePage} />;
+}
+
+/** The fixture rail, kept for the sample project only. */
+function SampleTree({ activePage = "Home" }: { activePage?: string }) {
   return (
     <div className="flex h-full flex-col overflow-y-auto border-r border-border bg-bg-surface scrollbar-thin">
       <h2 className="px-4 pb-1.5 pt-3.5 text-[11px] font-semibold text-content-muted">Pages</h2>

@@ -4,6 +4,7 @@ import { getProject, PROJECTS } from "@/lib/data";
 import { getSession } from "@/lib/auth/session";
 import { listProjects } from "@/lib/repositories/projects";
 import { loadAssistantHistory } from "@/lib/actions/assistant";
+import { getLatestVersionFiles } from "@/lib/repositories/code";
 
 /**
  * Dynamic, because the assistant beside the preview answers about the signed-in
@@ -32,13 +33,16 @@ export default async function PreviewPage({ params }: { params: Promise<{ id: st
   const real = isSampleId ? null : owned.find((project) => project.id === id || project.slug === id);
 
   const live = Boolean(real);
-  const history = live ? await loadAssistantHistory() : undefined;
+  const [history, version] = live
+    ? await Promise.all([loadAssistantHistory(), getLatestVersionFiles(real!.id)])
+    : [undefined, null];
 
   return (
     <PreviewWorkspace
       project={real ? { ...getProject(id), id: real.id, name: real.name } : getProject(id)}
       assistantLive={live}
       assistantHistory={history}
+      files={live ? (version?.files.map((file) => file.path) ?? []) : undefined}
     />
   );
 }

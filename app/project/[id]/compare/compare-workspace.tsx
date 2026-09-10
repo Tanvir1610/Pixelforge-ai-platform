@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { Segmented } from "@/components/ui/segmented";
 import { MiniSite, ScaledSite } from "@/components/preview/mini-site";
 import { MATCH_METRICS, VISUAL_DIFFERENCES } from "@/lib/data";
+import type { ComparisonSummary } from "@/lib/repositories/visual";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
 
@@ -25,14 +26,44 @@ const OVERLAYS = [
  * The differentiator screen: one headline score, five sub-scores and a list of
  * concrete differences that can be fixed in a single action.
  */
-export function CompareWorkspace({ project }: { project: Project }) {
+export function CompareWorkspace({
+  project,
+  comparisons = [],
+  live = false,
+}: {
+  project: Project;
+  comparisons?: ComparisonSummary[];
+  live?: boolean;
+}) {
   const [mode, setMode] = React.useState<Mode>("side");
   const [fixed, setFixed] = React.useState(false);
   const [fixing, setFixing] = React.useState(false);
 
-  const score = fixed ? 99 : (project.matchScore ?? 97);
-  const metrics = fixed ? MATCH_METRICS.map((m) => ({ ...m, value: Math.min(100, m.value + 3) })) : MATCH_METRICS;
-  const differences = fixed ? [] : VISUAL_DIFFERENCES;
+  // A real project with no comparison has no score. Reporting the fixture's
+  // 97% for something never built or screenshotted is the single most
+  // misleading number this app could show.
+  const latest = comparisons[0] ?? null;
+  const hasScore = !live || latest !== null;
+
+  const score = live
+    ? Math.round(latest?.similarity ?? 0)
+    : fixed ? 99 : (project.matchScore ?? 97);
+
+  const metrics = live
+    ? latest
+      ? [
+          { label: "Spacing", value: Math.round(latest.metrics.spacing) },
+          { label: "Typography", value: Math.round(latest.metrics.typography) },
+          { label: "Colour", value: Math.round(latest.metrics.color) },
+          { label: "Layout", value: Math.round(latest.metrics.layout) },
+          { label: "Components", value: Math.round(latest.metrics.components) },
+        ]
+      : []
+    : fixed ? MATCH_METRICS.map((m) => ({ ...m, value: Math.min(100, m.value + 3) })) : MATCH_METRICS;
+
+  // Region-level differences come from a comparison; without one there are none
+  // to list rather than the fixture's invented three.
+  const differences = live ? [] : fixed ? [] : VISUAL_DIFFERENCES;
 
   function fixDifferences() {
     setFixing(true);
@@ -76,20 +107,37 @@ export function CompareWorkspace({ project }: { project: Project }) {
             />
           </div>
 
-          <div
-            className="relative my-2 grid h-40 w-40 place-items-center rounded-full transition-all duration-700"
-            style={{ background: `conic-gradient(var(--accent-primary) ${score}%, var(--bg-subtle) 0)` }}
-            role="img"
-            aria-label={`${score} percent visual match`}
-          >
-            <span aria-hidden className="absolute inset-3 rounded-full bg-bg-surface" />
-            <span className="relative text-center">
-              <b className="font-display text-[40px] font-bold leading-none tracking-[-0.03em]">{score}%</b>
-              <span className="mt-0.5 block text-caption font-medium text-content-muted">
-                {differences.length === 0 ? "No differences" : `${differences.length} differences`}
+          {/* No dial without a comparison. An empty ring reading 0% would look
+              like a terrible match rather than an absent measurement. */}
+          {hasScore ? (
+            <div
+              className="relative my-2 grid h-40 w-40 place-items-center rounded-full transition-all duration-700"
+              style={{ background: `conic-gradient(var(--accent-primary) ${score}%, var(--bg-subtle) 0)` }}
+              role="img"
+              aria-label={`${score} percent visual match`}
+            >
+              <span aria-hidden className="absolute inset-3 rounded-full bg-bg-surface" />
+              <span className="relative text-center">
+                <b className="font-display text-[40px] font-bold leading-none tracking-[-0.03em]">{score}%</b>
+                <span className="mt-0.5 block text-caption font-medium text-content-muted">
+                  {differences.length === 0 ? "No differences" : `${differences.length} differences`}
+                </span>
               </span>
-            </span>
-          </div>
+            </div>
+          ) : (
+            <div className="my-2 grid h-40 w-40 place-items-center rounded-full border-[6px] border-dashed border-border text-center">
+              <span className="px-4 text-caption text-content-muted">
+                Not compared yet
+              </span>
+            </div>
+          )}
+
+          {!hasScore && (
+            <p className="mb-2 px-2 text-center text-body-sm text-content-muted">
+              A score needs the generated site built and screenshotted against your frames. This
+              deployment has no build sandbox, so there is nothing to measure yet.
+            </p>
+          )}
 
           <ul className="mt-3 flex w-full flex-col gap-3">
             {metrics.map((metric) => (

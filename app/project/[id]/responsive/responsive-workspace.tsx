@@ -19,7 +19,16 @@ const FRAME: Record<DeviceKey, { box: number; scale: number; note: string; deriv
   mobile: { box: 230, scale: 0.72, note: "1 column · padding 20", derived: true },
 };
 
-export function ResponsiveWorkspace({ project }: { project: Project }) {
+export function ResponsiveWorkspace({
+  project,
+  frames = [],
+  live = false,
+}: {
+  project: Project;
+  /** The project's own frames, which is where real breakpoints come from. */
+  frames?: { id: string; name: string; width: number; height: number; breakpoint: number | null }[];
+  live?: boolean;
+}) {
   const [mode, setMode] = React.useState<"single" | "all">("all");
   const [single, setSingle] = React.useState<DeviceKey>("tablet");
   const shown = mode === "all" ? DEVICES : DEVICES.filter((device) => device.key === single);
@@ -98,19 +107,45 @@ export function ResponsiveWorkspace({ project }: { project: Project }) {
         <aside className="m-6 mt-0 flex shrink-0 flex-wrap items-start gap-3 rounded-lg border border-border bg-bg-surface p-4 shadow-md">
           <AiGlyph size="lg" />
           <div className="min-w-[240px] flex-1">
-            <p className="text-[13.5px]">
-              Based on your Figma constraints, the card grid collapses to one column below 640px. The navbar links move
-              into a menu at 768px because the horizontal auto layout would otherwise overflow at 704px.
-            </p>
-            <ul className="mt-2 flex flex-wrap gap-2">
-              {RESPONSIVE_RULES.map((rule) => (
-                <li key={rule}>
-                  <Badge className="font-mono">{rule}</Badge>
-                </li>
-              ))}
-            </ul>
+            {/* Rules are derived from auto layout and constraints during
+                generation. Stating invented ones for a project that has none
+                described behaviour nobody had computed. */}
+            {live ? (
+              <>
+                <p className="text-[13.5px]">
+                  {frames.length > 0
+                    ? `Imported at ${frames.length} ${frames.length === 1 ? "frame" : "frames"}. Breakpoints are taken from the widths your frames were drawn at.`
+                    : "No frames imported yet, so there are no breakpoints to derive rules from."}
+                </p>
+                {frames.length > 0 && (
+                  <ul className="mt-2 flex flex-wrap gap-2">
+                    {frames.map((frame) => (
+                      <li key={frame.id}>
+                        <Badge className="font-mono">
+                          {frame.name} · {Math.round(frame.width)}px
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="text-[13.5px]">
+                  Based on your Figma constraints, the card grid collapses to one column below 640px. The navbar links
+                  move into a menu at 768px because the horizontal auto layout would otherwise overflow at 704px.
+                </p>
+                <ul className="mt-2 flex flex-wrap gap-2">
+                  {RESPONSIVE_RULES.map((rule) => (
+                    <li key={rule}>
+                      <Badge className="font-mono">{rule}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
-          <Button variant="secondary" size="sm">Edit rules</Button>
+          {!live && <Button variant="secondary" size="sm">Edit rules</Button>}
         </aside>
       </div>
     </WorkspaceShell>

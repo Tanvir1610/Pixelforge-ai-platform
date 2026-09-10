@@ -1,10 +1,16 @@
 import type { Metadata } from "next";
 import { CompareWorkspace } from "./compare-workspace";
 import { getProject, PROJECTS } from "@/lib/data";
+import { getSession } from "@/lib/auth/session";
+import { listProjects } from "@/lib/repositories/projects";
+import { getComparisons } from "@/lib/repositories/visual";
 
-export function generateStaticParams() {
-  return PROJECTS.map((project) => ({ id: project.id }));
-}
+/**
+ * Dynamic, because the score belongs to a project. Prerendered from the sample
+ * list it could only ever have shown the fixture score, which it did — a 97%
+ * match reported for projects that had never been built or screenshotted.
+ */
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -13,5 +19,19 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function ComparePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  return <CompareWorkspace project={getProject(id)} />;
+  const session = await getSession();
+
+  const isSampleId = PROJECTS.some((project) => project.id === id);
+  const owned = session && !session.demo ? await listProjects(session, 20) : [];
+  const real = isSampleId ? null : owned.find((project) => project.id === id || project.slug === id);
+
+  const comparisons = real ? await getComparisons(real.id) : [];
+
+  return (
+    <CompareWorkspace
+      project={real ? { ...getProject(id), id: real.id, name: real.name } : getProject(id)}
+      comparisons={comparisons}
+      live={Boolean(real)}
+    />
+  );
 }
