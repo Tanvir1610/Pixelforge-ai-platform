@@ -3,11 +3,12 @@
 import * as React from "react";
 import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
-import { COMPONENT_LIBRARY } from "@/lib/data";
+import type { ComponentEntry } from "@/types";
 import { Boxes, Search } from "lucide-react";
 
 type Tab = "mine" | "detected" | "reusable";
@@ -58,11 +59,11 @@ function Preview({ name }: { name: string }) {
   );
 }
 
-export function ComponentLibrary() {
+export function ComponentLibrary({ components }: { components: ComponentEntry[] }) {
   const [tab, setTab] = React.useState<Tab>("mine");
   const [query, setQuery] = React.useState("");
 
-  const results = COMPONENT_LIBRARY.filter((component) =>
+  const results = components.filter((component) =>
     component.name.toLowerCase().includes(query.trim().toLowerCase()),
   );
 
@@ -75,9 +76,9 @@ export function ComponentLibrary() {
           onChange={setTab}
           className="border-b-0"
           tabs={[
-            { value: "mine", label: "My components", count: 8 },
-            { value: "detected", label: "Detected", count: 9 },
-            { value: "reusable", label: "Reusable", count: 14 },
+            { value: "mine", label: "My components", count: components.length },
+            { value: "detected", label: "Detected", count: components.length },
+            { value: "reusable", label: "Reusable", count: components.filter((c) => c.usage > 1).length },
           ]}
         />
         <div className="flex items-center gap-2">
@@ -96,7 +97,18 @@ export function ComponentLibrary() {
         </div>
       </div>
 
-      {results.length === 0 ? (
+      {components.length === 0 ? (
+        <EmptyState
+          icon={<Boxes />}
+          title="No components yet"
+          body="Components are detected when you import a Figma file. Import a design and they will appear here."
+          action={
+            <Link href="/dashboard/import" className={buttonClasses("primary", "sm")}>
+              Import a design
+            </Link>
+          }
+        />
+      ) : results.length === 0 ? (
         <EmptyState
           icon={<Search />}
           title={`No results for "${query}"`}

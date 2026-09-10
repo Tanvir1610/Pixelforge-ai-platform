@@ -213,6 +213,14 @@ export type DesignComponentRow = {
   updated_at: string;
 };
 
+export type DesignComponentVariantRow = {
+  id: string;
+  design_component_id: string;
+  name: string;
+  properties: Json;
+  created_at: string;
+};
+
 export type DesignAssetRow = {
   id: string;
   project_id: string;
@@ -684,6 +692,13 @@ export type Database = {
         Row: DesignComponentRow;
         Insert: Pick<DesignComponentRow, "project_id" | "name"> & Partial<DesignComponentRow>;
         Update: Partial<DesignComponentRow>;
+        Relationships: [];
+      };
+      design_component_variants: {
+        Row: DesignComponentVariantRow;
+        Insert: Pick<DesignComponentVariantRow, "design_component_id" | "name"> &
+          Partial<DesignComponentVariantRow>;
+        Update: Partial<DesignComponentVariantRow>;
         Relationships: [];
       };
       design_assets: {

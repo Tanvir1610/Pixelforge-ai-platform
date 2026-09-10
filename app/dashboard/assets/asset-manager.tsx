@@ -5,7 +5,6 @@ import { Film, Image as ImageIcon, Layers, Type as TypeIcon, Upload, User, Zap }
 import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { Tabs } from "@/components/ui/tabs";
-import { ASSETS } from "@/lib/data";
 import { formatBytes } from "@/lib/utils";
 import type { AssetItem } from "@/types";
 
@@ -17,12 +16,12 @@ const ICONS: Record<AssetItem["kind"], React.ElementType> = {
 
 const GRADIENTS = ["from-[#E0E7FF] to-[#F5F3FF]", "from-[#FEF3C7] to-[#FDE68A]", "from-[#DCFCE7] to-[#BBF7D0]"];
 
-export function AssetManager() {
+export function AssetManager({ assets }: { assets: AssetItem[] }) {
   const [filter, setFilter] = React.useState<Filter>("all");
   const [optimised, setOptimised] = React.useState(false);
 
-  const visible = ASSETS.filter((asset) => filter === "all" || asset.kind === filter);
-  const pending = ASSETS.filter((asset) => asset.needsOptimising).length;
+  const visible = assets.filter((asset) => filter === "all" || asset.kind === filter);
+  const pending = assets.filter((asset) => asset.needsOptimising).length;
 
   return (
     <>

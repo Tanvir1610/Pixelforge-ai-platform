@@ -11,8 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { StatusDot } from "@/components/ui/status";
 import { Badge } from "@/components/ui/badge";
 import { useSequence } from "@/hooks/use-sequence";
-import { DEPLOYMENTS } from "@/lib/data";
-import type { HostProvider, TaskState } from "@/types";
+import type { Deployment, HostProvider, TaskState } from "@/types";
 
 const HOSTS = [
   { value: "Vercel" as HostProvider, label: "Vercel", swatch: "#111111" },
@@ -38,7 +37,7 @@ const LOG = [
   "▲ Generating static pages (6/6)", "▲ Route sizes — first load 96 kB", "▲ Uploading build output…",
 ];
 
-export function DeployWorkspace() {
+export function DeployWorkspace({ deployments }: { deployments: Deployment[] }) {
   const [host, setHost] = React.useState<HostProvider>("Vercel");
   const [started, setStarted] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
@@ -199,17 +198,34 @@ export function DeployWorkspace() {
           <table className="w-full text-body-sm">
             <caption className="sr-only">Recent deployments for this project</caption>
             <tbody>
-              {DEPLOYMENTS.map((deployment) => (
-                <tr key={deployment.id}>
-                  <td className="border-b border-border px-4 py-3 font-mono text-caption">{deployment.hash}</td>
-                  <td className="border-b border-border px-4 py-3">
-                    <Badge tone={deployment.status === "ready" ? "success" : "error"} dot={deployment.status === "ready"}>
-                      {deployment.status === "ready" ? "Ready" : "Failed"}
-                    </Badge>
+              {deployments.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="px-4 py-6 text-center text-content-muted">
+                    Nothing deployed yet. Your first deployment will appear here.
                   </td>
-                  <td className="border-b border-border px-4 py-3 text-content-muted">{deployment.time}</td>
                 </tr>
-              ))}
+              ) : (
+                deployments.map((deployment) => (
+                  <tr key={deployment.id}>
+                    <td className="border-b border-border px-4 py-3 font-mono text-caption">{deployment.hash}</td>
+                    <td className="border-b border-border px-4 py-3">
+                      <Badge
+                        tone={
+                          deployment.status === "ready" ? "success"
+                          : deployment.status === "failed" ? "error"
+                          : "warning"
+                        }
+                        dot={deployment.status !== "failed"}
+                      >
+                        {deployment.status === "ready" ? "Ready"
+                          : deployment.status === "failed" ? "Failed"
+                          : "Building"}
+                      </Badge>
+                    </td>
+                    <td className="border-b border-border px-4 py-3 text-content-muted">{deployment.time}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </Card>
