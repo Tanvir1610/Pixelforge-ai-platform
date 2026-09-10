@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPublicEnv, SupabaseConfigError } from "@/lib/supabase/env";
 import { isUpiConfigured } from "@/lib/payments/upi";
+import { figmaRedirectUri, figmaScope } from "@/lib/figma/oauth";
 
 /**
  * Deployment diagnostics.
@@ -77,10 +78,30 @@ export async function GET() {
     ),
   };
 
+  // The exact strings Figma has to have registered. "Invalid redirect uri" and
+  // "Invalid scopes for app" are both refusals on Figma's own page, so the app
+  // never sees either and cannot report what it sent — which leaves guessing as
+  // the only way to reconcile the two sides. These are that answer.
+  const appUrlOrigin = (() => {
+    if (!process.env.NEXT_PUBLIC_APP_URL) return null;
+    try {
+      return new URL(process.env.NEXT_PUBLIC_APP_URL).origin;
+    } catch {
+      return null;
+    }
+  })();
+
   const figma = {
     clientId: describe(process.env.FIGMA_CLIENT_ID),
     clientSecret: describe(process.env.FIGMA_CLIENT_SECRET),
     usable: Boolean(process.env.FIGMA_CLIENT_ID && process.env.FIGMA_CLIENT_SECRET),
+    scope: figmaScope(),
+    redirectUri: appUrlOrigin
+      ? figmaRedirectUri(appUrlOrigin)
+      : "(derived from the request host — set NEXT_PUBLIC_APP_URL to pin it)",
+    hint:
+      "Register redirectUri on the Figma app verbatim: scheme, host and path, with no trailing slash. " +
+      "Register scope there too. Both are matched exactly.",
   };
 
   return NextResponse.json(
