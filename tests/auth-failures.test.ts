@@ -88,10 +88,15 @@ describe("Supabase configuration", () => {
 });
 
 describe("auth failure messages", () => {
-  it("blames the deployment for a configuration fault", () => {
-    const failure = describeAuthFailure("sign-up", new SupabaseConfigError("missing"));
+  it("blames the deployment for a configuration fault, naming the variable", () => {
+    const failure = describeAuthFailure(
+      "sign-up",
+      new SupabaseConfigError("NEXT_PUBLIC_SUPABASE_ANON_KEY is not set."),
+    );
     expect(failure.configuration).toBe(true);
-    expect(failure.message).toMatch(/NEXT_PUBLIC_SUPABASE_URL/);
+    // The specific variable, not a list of every candidate.
+    expect(failure.message).toMatch(/NEXT_PUBLIC_SUPABASE_ANON_KEY is not set/);
+    expect(failure.message).not.toMatch(/NEXT_PUBLIC_SUPABASE_URL/);
   });
 
   it("recognises a failed fetch, however the runtime words it", () => {

@@ -35,10 +35,11 @@ export function describeAuthFailure(scope: string, error: unknown): AuthFailure 
   console.error(`[auth:${scope}]`, error);
 
   if (error instanceof SupabaseConfigError) {
+    // The message names the offending variable and never contains its value —
+    // that is the whole point of the distinct error type. Showing it beats
+    // listing both variables and leaving the reader to guess which is wrong.
     return {
-      message:
-        "This deployment isn't connected to Supabase correctly, so accounts can't be created yet. " +
-        "Check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in the hosting environment.",
+      message: `This deployment isn't connected to Supabase correctly, so accounts can't be created yet. ${error.message}`,
       configuration: true,
     };
   }
