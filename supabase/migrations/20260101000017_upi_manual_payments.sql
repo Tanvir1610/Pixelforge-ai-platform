@@ -75,7 +75,7 @@ returns text
 language plpgsql
 security definer
 set search_path = public
-as $$
+as $verify_upi$
 declare
   v_claim public.upi_payment_claims;
   v_period_end timestamptz;
@@ -123,12 +123,16 @@ begin
   v_period_end := now() + interval '1 month';
 
   perform public.apply_subscription(
-    v_claim.organization_id, v_claim.plan_key, 'active', null, now(), v_period_end
+    p_organization_id => v_claim.organization_id,
+    p_plan_key        => v_claim.plan_key,
+    p_status          => 'active',
+    p_period_start    => now(),
+    p_period_end      => v_period_end
   );
 
   return 'verified';
 end;
-$$;
+$verify_upi$;
 
 -- Service role only. A signed-in user verifying their own payment is the whole
 -- attack, so `authenticated` must never hold this.
