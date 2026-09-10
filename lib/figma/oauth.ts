@@ -20,10 +20,21 @@ const TOKEN_URL = "https://api.figma.com/v1/oauth/token";
 const ME_URL = "https://api.figma.com/v1/me";
 
 /**
- * Figma renamed its scopes; older apps are still registered against the legacy
- * name. Configurable so a mismatch is a setting rather than a code change.
+ * Figma renamed its scopes, and an app only accepts the ones enabled in its own
+ * settings. Ask for one it does not have and the authorize page refuses with
+ * `{"status":400,"message":"Invalid scopes for app"}` before the user ever
+ * reaches a consent screen — the app never sees it, because the rejection
+ * happens on Figma's side of the redirect.
+ *
+ * `file_read` is the legacy name and the one nearly every existing app carries.
+ * Apps registered against the granular scopes want `files:read` instead, plus
+ * `current_user:read` if /v1/me is to resolve the handle — set FIGMA_OAUTH_SCOPE
+ * to a space-separated list for those.
+ *
+ * Read at request time, not build time, so correcting it is an environment
+ * change rather than a deploy.
  */
-const DEFAULT_SCOPE = "files:read";
+const DEFAULT_SCOPE = "file_read";
 
 export class FigmaOauthNotConfiguredError extends Error {
   constructor() {
@@ -41,6 +52,18 @@ function credentials(): { clientId: string; clientSecret: string } {
   const clientSecret = process.env.FIGMA_CLIENT_SECRET;
   if (!clientId || !clientSecret) throw new FigmaOauthNotConfiguredError();
   return { clientId, clientSecret };
+}
+
+/**
+ * The scope list, normalised.
+ *
+ * Figma wants them space-separated. Commas are the obvious thing to type and
+ * produce exactly the same opaque 400, so they are accepted and converted.
+ */
+export function figmaScope(): string {
+  const configured = process.env.FIGMA_OAUTH_SCOPE?.trim();
+  if (!configured) return DEFAULT_SCOPE;
+  return configured.split(/[\s,]+/).filter(Boolean).join(" ") || DEFAULT_SCOPE;
 }
 
 export function figmaRedirectUri(origin: string): string {
@@ -73,7 +96,7 @@ export async function beginFigmaConnect(params: {
   const url = new URL(AUTHORIZE_URL);
   url.searchParams.set("client_id", clientId);
   url.searchParams.set("redirect_uri", figmaRedirectUri(params.origin));
-  url.searchParams.set("scope", process.env.FIGMA_OAUTH_SCOPE ?? DEFAULT_SCOPE);
+  url.searchParams.set("scope", figmaScope());
   url.searchParams.set("state", state);
   url.searchParams.set("response_type", "code");
 
