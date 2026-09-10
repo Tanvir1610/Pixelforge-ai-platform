@@ -35,6 +35,46 @@ export interface AnthropicOptions {
  * different class, not changing any agent.
  */
 /**
+ * A provider failure that carries what the API said.
+ *
+ * `anthropic_400` alone cost two debugging rounds: a stale model id, a removed
+ * sampling parameter and an unscoped API key all arrive as the same status,
+ * and all three are configuration faults that no amount of retrying fixes.
+ * The API states which one it is; this keeps that.
+ */
+export class AnthropicApiError extends Error {
+  constructor(
+    readonly status: number,
+    /** The API's own message. Names parameters and headers, never secrets. */
+    readonly detail: string,
+  ) {
+    super(`anthropic_${status}`);
+    this.name = "AnthropicApiError";
+  }
+
+  /**
+   * True when the request itself is wrong rather than the service unavailable.
+   *
+   * The distinction decides whether "try again in a moment" is honest advice or
+   * an instruction to repeat something that can never succeed.
+   */
+  get isConfiguration(): boolean {
+    return this.status === 400 || this.status === 401 || this.status === 403 || this.status === 404;
+  }
+}
+
+/** Pulls the human-readable part out of the API's error envelope. */
+export function describeAnthropicError(status: number, body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string } };
+    if (parsed.error?.message) return parsed.error.message;
+  } catch {
+    // Not JSON; fall through to the raw body.
+  }
+  return body.slice(0, 300) || `HTTP ${status}`;
+}
+
+/**
  * Request headers.
  *
  * An organization-scoped API key must name a workspace on every request:
@@ -132,9 +172,10 @@ export class AnthropicProvider extends BaseModelProvider {
       // parameter removed from this generation — and throwing only the code
       // turned each of those into a debugging session. The body is logged, not
       // returned: callers still map the code to user-facing copy.
-      const detail = await response.text().catch(() => "");
-      console.error(`[anthropic] ${response.status}`, detail.slice(0, 500));
-      throw new Error(`anthropic_${response.status}`);
+      const body = await response.text().catch(() => "");
+      const detail = describeAnthropicError(response.status, body);
+      console.error(`[anthropic] ${response.status}`, detail);
+      throw new AnthropicApiError(response.status, detail);
     }
 
     return {
@@ -221,9 +262,10 @@ export class AnthropicProvider extends BaseModelProvider {
     });
 
     if (!response.ok || !response.body) {
-      const detail = response.ok ? "no response body" : await response.text().catch(() => "");
-      console.error(`[anthropic:stream] ${response.status}`, detail.slice(0, 500));
-      throw new Error(`anthropic_${response.status}`);
+      const body = response.ok ? "no response body" : await response.text().catch(() => "");
+      const detail = describeAnthropicError(response.status, body);
+      console.error(`[anthropic:stream] ${response.status}`, detail);
+      throw new AnthropicApiError(response.status, detail);
     }
 
     const reader = response.body.getReader();

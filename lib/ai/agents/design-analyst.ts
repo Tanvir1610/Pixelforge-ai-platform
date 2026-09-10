@@ -65,7 +65,10 @@ export class AnalystError extends Error {
       | "invalid_output"
       | "provider_error"
       | "empty_design"
-      | "no_credits",
+      | "no_credits"
+      // The request itself was rejected — an unknown model, a removed
+      // parameter, a key naming no workspace. Retrying never fixes it.
+      | "provider_misconfigured",
     message: string,
     readonly usage: ModelUsage = { inputTokens: 0, outputTokens: 0, costUsd: 0, latencyMs: 0 },
     // Carried so a failed call is still attributed to the provider that served

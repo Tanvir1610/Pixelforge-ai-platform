@@ -27,6 +27,50 @@ function describe(value: string | undefined) {
   return { set: trimmed.length > 0, length: trimmed.length };
 }
 
+/**
+ * Actually call the API rather than checking that a string is non-empty.
+ *
+ * `usable: true` meaning "the variable is set" is what let a completely
+ * unusable configuration look healthy — a stale model id, a removed parameter
+ * and an org-scoped key with no workspace all sat behind a green tick. GET
+ * /v1/models costs nothing, needs no model id, and exercises exactly the two
+ * things that were wrong: the credential and the workspace header.
+ */
+async function probeInference(): Promise<{ reachable: boolean; problem: string | null }> {
+  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  if (!apiKey) return { reachable: false, problem: "ANTHROPIC_API_KEY is not set." };
+
+  const workspaceId = process.env.ANTHROPIC_WORKSPACE_ID?.trim();
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/models?limit=1", {
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        ...(workspaceId ? { "anthropic-workspace-id": workspaceId } : {}),
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (response.ok) return { reachable: true, problem: null };
+
+    const body = await response.text().catch(() => "");
+    let message = `HTTP ${response.status}`;
+    try {
+      message = (JSON.parse(body) as { error?: { message?: string } }).error?.message ?? message;
+    } catch {
+      // Not JSON; the status stands.
+    }
+    // The API's own words. They name headers and parameters, never secrets.
+    return { reachable: false, problem: message.slice(0, 300) };
+  } catch (error) {
+    return {
+      reachable: false,
+      problem: error instanceof Error ? `Could not reach the API: ${error.message}` : "Could not reach the API.",
+    };
+  }
+}
+
 export async function GET() {
   // Inlined at build time. A false means the build did not have it.
   const url = describe(process.env.NEXT_PUBLIC_SUPABASE_URL);
@@ -35,6 +79,8 @@ export async function GET() {
 
   // Read at runtime, so this one reflects the current settings, not the build.
   const serviceKey = describe(process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+  const inference = await probeInference();
 
   let configured = false;
   let problem: string | null = null;
@@ -124,6 +170,9 @@ export async function GET() {
       inference: {
         anthropicKey: describe(process.env.ANTHROPIC_API_KEY),
         openaiKey: describe(process.env.OPENAI_API_KEY),
+        // Verified, not assumed: `usable` only says the variable is set.
+        reachable: inference.reachable,
+        problem: inference.problem,
         // Only needed for an organization-scoped key, which the API rejects
         // without it. A workspace-scoped key needs nothing here.
         workspaceId: describe(process.env.ANTHROPIC_WORKSPACE_ID),

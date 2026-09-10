@@ -64,6 +64,8 @@ export class CodegenError extends Error {
 }
 
 const USER_MESSAGE: Record<string, string> = {
+  provider_misconfigured:
+    "The AI provider rejected the request as misconfigured, so retrying will not help. Check ANTHROPIC_API_KEY and ANTHROPIC_WORKSPACE_ID — see /api/health.",
   not_configured: "No model provider is configured, so code generation cannot run.",
   no_plan: "Run the architecture and component planners before generating.",
   empty_design: "There's no analysed design to generate from yet.",

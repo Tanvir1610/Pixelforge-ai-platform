@@ -46,6 +46,8 @@ export interface AnalysisStageOutcome {
 }
 
 const USER_MESSAGE: Record<string, string> = {
+  provider_misconfigured:
+    "The AI provider rejected the request as misconfigured, so retrying will not help. Check ANTHROPIC_API_KEY and ANTHROPIC_WORKSPACE_ID — see /api/health.",
   not_configured: "No AI provider is configured. Set ANTHROPIC_API_KEY and try again.",
   empty_design: "There's no imported design to analyse yet.",
   invalid_output: "The analysis came back in an unusable shape. Try running it again.",

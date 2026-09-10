@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import { resolveProvider } from "./registry";
+import { AnthropicApiError } from "./providers/anthropic";
 import type { ModelMessage, ModelPurpose, ModelUsage } from "./types";
 
 export interface StructuredCallOptions<T> {
@@ -29,7 +30,7 @@ export interface StructuredCallResult<T> {
 
 export class StructuredCallError extends Error {
   constructor(
-    readonly code: "invalid_output" | "provider_error",
+    readonly code: "invalid_output" | "provider_error" | "provider_misconfigured",
     message: string,
     readonly attempts: number,
     readonly usage: ModelUsage,
@@ -125,9 +126,16 @@ export async function structuredCall<T>(options: StructuredCallOptions<T>): Prom
     } catch (error) {
       // A transport or provider failure is not something a reworded prompt
       // fixes, so it fails immediately rather than consuming the repair attempt.
+      // A rejected request is not a flaky one. Telling the user to try again
+      // when the API said the model id is unknown, or the key names no
+      // workspace, is advice that can only ever waste their time.
+      const misconfigured = error instanceof AnthropicApiError && error.isConfiguration;
+
       throw new StructuredCallError(
-        "provider_error",
-        error instanceof Error ? error.message : "provider call failed",
+        misconfigured ? "provider_misconfigured" : "provider_error",
+        error instanceof AnthropicApiError
+          ? error.detail
+          : error instanceof Error ? error.message : "provider call failed",
         attempt,
         usage,
         provider.key,
