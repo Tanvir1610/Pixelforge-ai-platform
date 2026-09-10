@@ -13,9 +13,20 @@ afterEach(() => {
 });
 
 describe("Figma scope", () => {
-  it("defaults to the legacy scope nearly every app carries", () => {
+  /**
+   * `file_read` is deprecated for OAuth 2 tokens and `files:read` is deprecated
+   * too, so an app registered today carries neither and asking for one is
+   * refused outright.
+   */
+  it("defaults to the granular scopes the app's calls actually need", () => {
     delete process.env.FIGMA_OAUTH_SCOPE;
-    expect(figmaScope()).toBe("file_read");
+    expect(figmaScope()).toBe("file_content:read current_user:read");
+  });
+
+  it("does not default to a deprecated scope name", () => {
+    delete process.env.FIGMA_OAUTH_SCOPE;
+    expect(figmaScope()).not.toMatch(/file_read/);
+    expect(figmaScope()).not.toMatch(/files:read/);
   });
 
   it("passes a configured scope through", () => {
@@ -34,9 +45,9 @@ describe("Figma scope", () => {
 
   it("falls back rather than sending an empty scope", () => {
     process.env.FIGMA_OAUTH_SCOPE = "   ";
-    expect(figmaScope()).toBe("file_read");
+    expect(figmaScope()).toBe("file_content:read current_user:read");
 
     process.env.FIGMA_OAUTH_SCOPE = ",,,";
-    expect(figmaScope()).toBe("file_read");
+    expect(figmaScope()).toBe("file_content:read current_user:read");
   });
 });

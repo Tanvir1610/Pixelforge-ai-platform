@@ -20,21 +20,25 @@ const TOKEN_URL = "https://api.figma.com/v1/oauth/token";
 const ME_URL = "https://api.figma.com/v1/me";
 
 /**
- * Figma renamed its scopes, and an app only accepts the ones enabled in its own
- * settings. Ask for one it does not have and the authorize page refuses with
- * `{"status":400,"message":"Invalid scopes for app"}` before the user ever
- * reaches a consent screen — the app never sees it, because the rejection
- * happens on Figma's side of the redirect.
+ * The scopes this app actually needs, in Figma's current vocabulary.
  *
- * `file_read` is the legacy name and the one nearly every existing app carries.
- * Apps registered against the granular scopes want `files:read` instead, plus
- * `current_user:read` if /v1/me is to resolve the handle — set FIGMA_OAUTH_SCOPE
- * to a space-separated list for those.
+ * Figma moved to granular scopes and deprecated the older names. `file_read` is
+ * deprecated *for OAuth 2 tokens* specifically, and `files:read` is deprecated
+ * too — an app registered today carries neither, so asking for either is
+ * refused with `{"status":400,"message":"Invalid scopes for app"}` on Figma's
+ * own authorize page, before any consent screen and before this app sees a
+ * thing.
  *
- * Read at request time, not build time, so correcting it is an environment
+ * What the client calls, and what each needs:
+ *   GET /v1/files/{key}         file contents   -> file_content:read
+ *   GET /v1/images/{key}        node renders    -> file_content:read
+ *   GET /v1/files/{key}/images  image fills     -> file_content:read
+ *   GET /v1/me                  the handle      -> current_user:read
+ *
+ * Read at request time, not build time, so a correction is an environment
  * change rather than a deploy.
  */
-const DEFAULT_SCOPE = "file_read";
+const DEFAULT_SCOPE = "file_content:read current_user:read";
 
 export class FigmaOauthNotConfiguredError extends Error {
   constructor() {
