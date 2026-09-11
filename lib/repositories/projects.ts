@@ -139,3 +139,58 @@ export const getProjectStats = cache(async (session: Session): Promise<ProjectSt
     aiCreditsLimit: limit,
   };
 });
+
+/**
+ * Renames a project.
+ *
+ * The slug is deliberately left alone. It is in URLs the user may have shared
+ * and in every path the storage policies resolve a project from; changing it to
+ * follow a rename would break both for a cosmetic gain.
+ */
+export async function renameProject(projectId: string, name: string): Promise<ProjectRow> {
+  const supabase = await createClient();
+  if (!supabase) throw new Error("Supabase is not configured.");
+
+  const { data, error } = await supabase
+    .from("projects")
+    .update({ name })
+    .eq("id", projectId)
+    .is("deleted_at", null)
+    .select("*")
+    .single();
+
+  if (error) {
+    if (error.code === "42501") throw new Error("You do not have permission to rename this project.");
+    throw new Error(`Could not rename the project: ${error.message}`);
+  }
+  return data;
+}
+
+/**
+ * Deletes a project.
+ *
+ * Soft, by setting `deleted_at`. Every read already filters on it, so the
+ * project disappears immediately — but its design, versions and generated files
+ * are still there, which matters because this is the one destructive action in
+ * the product and a mis-click would otherwise lose an afternoon's generation
+ * with nothing to recover from.
+ *
+ * The RLS delete policy requires org admin; this update path requires
+ * can_write_project, so the check is the write policy rather than the delete
+ * one. That is deliberate: whoever may generate into a project may retire it.
+ */
+export async function softDeleteProject(projectId: string): Promise<void> {
+  const supabase = await createClient();
+  if (!supabase) throw new Error("Supabase is not configured.");
+
+  const { error } = await supabase
+    .from("projects")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", projectId)
+    .is("deleted_at", null);
+
+  if (error) {
+    if (error.code === "42501") throw new Error("You do not have permission to delete this project.");
+    throw new Error(`Could not delete the project: ${error.message}`);
+  }
+}

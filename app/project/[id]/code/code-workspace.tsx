@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/components/sections/code-block";
 import { EditorTabs } from "@/components/sections/editor-tabs";
 import { CODE_FILES } from "@/lib/data";
-import type { LatestCodeVersion } from "@/lib/repositories/code";
+import type { LatestCodeVersion, VersionSummary } from "@/lib/repositories/code";
+import { VersionHistory } from "@/components/code/version-history";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
 
@@ -55,9 +56,12 @@ const OPEN_FILES = ["page.tsx", "Hero.tsx", "globals.css"];
 export function CodeWorkspace({
   project,
   version,
+  versions = [],
 }: {
   project: Project;
   version?: LatestCodeVersion | null;
+  /** Every version of this project, newest first. Empty for the sample. */
+  versions?: VersionSummary[];
 }) {
   const live = Boolean(version && version.files.length > 0);
 
@@ -187,6 +191,15 @@ export function CodeWorkspace({
               </Button>
             );
           })}
+
+          {/* The history was written from the first generation and reachable
+              from nowhere, which made every generation final. */}
+          {live && versions.length > 0 && (
+            <div className="mt-3 rounded-[10px] border border-[#2E2E2E] bg-[#1A1A1A] p-3 [&_*]:text-[#E5E7EB] [&_time]:text-[#9CA3AF]">
+              <h2 className="mb-1.5 text-[11px] font-semibold text-[#6B7280]">Version history</h2>
+              <VersionHistory versions={versions} />
+            </div>
+          )}
 
           <div className="mt-3">
             <h2 className="mb-1 text-[11px] font-semibold text-[#6B7280]">Selection</h2>

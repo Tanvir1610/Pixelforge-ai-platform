@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { Folder } from "lucide-react";
 import { AppShell, PageHeading } from "@/components/layout/app-shell";
-import { ProjectCard } from "@/components/sections/project-card";
 import { DemoBanner } from "@/components/layout/demo-banner";
+import { EmptyState } from "@/components/ui/empty-state";
+import { buttonClasses } from "@/components/ui/button";
 import { NewProjectTrigger } from "../new-project-trigger";
 import { requireSession } from "@/lib/auth/session";
 import { listProjects } from "@/lib/repositories/projects";
+import { ProjectBrowser } from "./project-browser";
 
 // Session-dependent: must not be prerendered. Without this, a build made in
 // demo mode would cache seeded data and serve it even once Supabase is configured.
@@ -21,14 +25,28 @@ export default async function ProjectsPage() {
       {session.demo && <DemoBanner />}
       <PageHeading
         title="Projects"
-        description={`${projects.length} ${projects.length === 1 ? "project" : "projects"} in this workspace.`}
+        description={
+          projects.length > 0
+            ? `${projects.length} ${projects.length === 1 ? "project" : "projects"} in this workspace.`
+            : "Every design you import becomes a project."
+        }
         actions={<NewProjectTrigger />}
       />
-      <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {projects.map((project) => (
-          <ProjectCard key={project.id} project={project} />
-        ))}
-      </ul>
+
+      {projects.length === 0 ? (
+        <EmptyState
+          icon={<Folder />}
+          title="No projects yet"
+          body="A project holds one imported design, its generated code and everything derived from it."
+          action={
+            <Link href="/dashboard/import" className={buttonClasses("primary", "sm")}>
+              Import a design
+            </Link>
+          }
+        />
+      ) : (
+        <ProjectBrowser projects={projects} />
+      )}
     </AppShell>
   );
 }
