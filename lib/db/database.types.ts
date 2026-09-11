@@ -922,6 +922,7 @@ export type Database = {
       };
       my_credit_balance: {
         Args: { p_organization_id: string };
+        /** Shape unchanged from 0007; `remaining` now nets off held credits. */
         Returns: { used: number; limit: number; remaining: number }[];
       };
       start_generation_run: {

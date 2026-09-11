@@ -26,9 +26,12 @@
 -- release. A reservation is an outstanding claim on the balance — held against
 -- it while the work runs, converted to a charge when the work succeeds, and
 -- given back when it does not.
+--
+-- Safe to run more than once: every object is guarded, so a partial apply can
+-- simply be re-run rather than unpicked.
 -- =============================================================================
 
-create table public.credit_reservations (
+create table if not exists public.credit_reservations (
   id              uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
   project_id      uuid references public.projects(id) on delete set null,
@@ -52,13 +55,16 @@ create table public.credit_reservations (
   resolved_at     timestamptz
 );
 
-create index on public.credit_reservations (organization_id, status);
-create index on public.credit_reservations (status, expires_at) where status = 'held';
+create index if not exists credit_reservations_org_status_idx
+  on public.credit_reservations (organization_id, status);
+create index if not exists credit_reservations_held_idx
+  on public.credit_reservations (status, expires_at) where status = 'held';
 
 alter table public.credit_reservations enable row level security;
 
 -- Readable by the workspace, so a user can see what is held against them.
 -- Never client-writable: a reservation a browser could forge is not a limit.
+drop policy if exists "read own credit reservations" on public.credit_reservations;
 create policy "read own credit reservations" on public.credit_reservations
   for select using (public.is_org_member(organization_id));
 
@@ -258,29 +264,40 @@ as $expire$
   select count(*)::integer from expired;
 $expire$;
 
+-- ---------------------------------------------------------------------------
 -- The balance a user sees now accounts for what is held.
+--
+-- The return shape is deliberately unchanged — (used, "limit", remaining) as
+-- 0007 defined it. Changing it would need a DROP, which takes the grants with
+-- it and breaks every caller for the sake of one extra column:
+--   ERROR: cannot change return type of existing function
+--
+-- `remaining` is the number that was wrong: it ignored outstanding
+-- reservations, so a user could be shown credits that were already claimed by
+-- work in flight and be refused the moment they tried to spend them.
+-- ---------------------------------------------------------------------------
 create or replace function public.my_credit_balance(p_organization_id uuid)
-returns numeric
+returns table (used numeric, "limit" int, remaining numeric)
 language sql
 stable
 security definer
 set search_path = public
 as $balance$
-  select greatest(
-    coalesce(o.ai_credits_limit, 0)
-      - coalesce((
-          select sum(u.quantity)
-          from public.usage_records u
-          where u.organization_id = o.id
-            and u.metric = 'ai_credits'
-            and u.occurred_at >= date_trunc('month', now())
-        ), 0)
-      - public.held_credits(o.id),
-    0
-  )
+  select
+    coalesce(sum(u.quantity), 0) as used,
+    o.ai_credits_limit as "limit",
+    greatest(
+      0,
+      o.ai_credits_limit - coalesce(sum(u.quantity), 0) - public.held_credits(o.id)
+    ) as remaining
   from public.organizations o
+  left join public.usage_records u
+    on u.organization_id = o.id
+   and u.metric = 'ai_credits'
+   and u.occurred_at >= date_trunc('month', now())
   where o.id = p_organization_id
-    and public.is_org_member(o.id);
+    and public.is_org_member(o.id)
+  group by o.ai_credits_limit;
 $balance$;
 
 -- Service role only. A client that could reserve, settle or release its own
@@ -305,14 +322,15 @@ grant execute on function public.held_credits(uuid) to authenticated;
 -- serverless: an in-process counter is per-instance, and the instance count is
 -- not something the application controls.
 -- =============================================================================
-create table public.rate_limit_hits (
+create table if not exists public.rate_limit_hits (
   id          bigserial primary key,
   -- Who and what, e.g. "generate:<organization id>".
   bucket      text not null,
   occurred_at timestamptz not null default now()
 );
 
-create index on public.rate_limit_hits (bucket, occurred_at desc);
+create index if not exists rate_limit_hits_bucket_idx
+  on public.rate_limit_hits (bucket, occurred_at desc);
 
 alter table public.rate_limit_hits enable row level security;
 -- No policy at all: only the service role touches this.
