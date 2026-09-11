@@ -71,6 +71,58 @@ async function probeInference(): Promise<{ reachable: boolean; problem: string |
   }
 }
 
+/**
+ * Checks the Figma OAuth credentials without a browser.
+ *
+ * The two failures look identical from the outside and have different fixes:
+ * wrong credentials, versus an app that exists but has not been published
+ * under Figma's current developer-platform requirements. An unpublished app
+ * still authenticates at the token endpoint, and is still refused by the
+ * authorize page with "OAuth app with client id ... doesn't exist" — which
+ * reads exactly like a wrong id.
+ *
+ * A deliberately invalid authorization code is enough to tell them apart:
+ * `invalid_grant` means Figma accepted the client credentials and only
+ * objected to the code.
+ */
+async function probeFigmaCredentials(origin: string): Promise<{ valid: boolean | null; problem: string | null }> {
+  const clientId = process.env.FIGMA_CLIENT_ID?.trim();
+  const clientSecret = process.env.FIGMA_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) return { valid: null, problem: "Figma OAuth is not configured." };
+
+  try {
+    const response = await fetch("https://api.figma.com/v1/oauth/token", {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: "health-probe-not-a-real-code",
+        redirect_uri: `${origin}/api/connect/figma/callback`,
+      }).toString(),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    const body = (await response.json().catch(() => ({}))) as { error?: string; message?: string };
+
+    // Figma objected only to the code, so the client id and secret are good.
+    if (body.error === "invalid_grant") {
+      return {
+        valid: true,
+        problem:
+          "Credentials accepted. If connecting still fails with \"OAuth app ... doesn't exist\", the app " +
+          "needs re-publishing at figma.com/developers/apps — private publication needs no review.",
+      };
+    }
+
+    return { valid: false, problem: body.message ?? body.error ?? `HTTP ${response.status}` };
+  } catch (error) {
+    return { valid: null, problem: error instanceof Error ? error.message : "Could not reach Figma." };
+  }
+}
+
 export async function GET() {
   // Inlined at build time. A false means the build did not have it.
   const url = describe(process.env.NEXT_PUBLIC_SUPABASE_URL);
@@ -137,11 +189,15 @@ export async function GET() {
     }
   })();
 
+  const figmaProbe = await probeFigmaCredentials(appUrlOrigin ?? "https://example.invalid");
+
   const figma = {
     clientId: describe(process.env.FIGMA_CLIENT_ID),
     clientSecret: describe(process.env.FIGMA_CLIENT_SECRET),
     usable: Boolean(process.env.FIGMA_CLIENT_ID && process.env.FIGMA_CLIENT_SECRET),
     scope: figmaScope(),
+    credentialsValid: figmaProbe.valid,
+    credentialsNote: figmaProbe.problem,
     redirectUri: appUrlOrigin
       ? figmaRedirectUri(appUrlOrigin)
       : "(derived from the request host — set NEXT_PUBLIC_APP_URL to pin it)",
