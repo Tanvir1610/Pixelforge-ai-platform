@@ -21,18 +21,28 @@ alter table public.figma_connections
   add column if not exists token_kind text not null default 'oauth'
     check (token_kind in ('oauth', 'personal'));
 
+-- Safe to run more than once: the column add is conditional, and the function
+-- is dropped before it is created.
 comment on column public.figma_connections.token_kind is
   'oauth = bearer token from the connect flow; personal = a user-supplied Figma personal access token.';
 
 -- A personal token does not expire and has no refresh token, so the existing
 -- "is it still live" test has to stop treating a null expiry as suspicious.
-create or replace function public.my_figma_connection()
+--
+-- Dropped first, not replaced. `create or replace` cannot change a function's
+-- return type, and adding token_kind to the returned table changes it:
+--   ERROR: cannot change return type of existing function
+-- Nothing in SQL depends on this function — only the application calls it — so
+-- dropping it is safe. The grant goes with it, and is reinstated below.
+drop function if exists public.my_figma_connection();
+
+create function public.my_figma_connection()
 returns table (figma_handle text, expires_at timestamptz, is_active boolean, token_kind text)
 language sql
 stable
 security definer
 set search_path = public
-as $$
+as $my_figma_connection$
   select
     c.figma_handle,
     c.expires_at,
@@ -42,6 +52,6 @@ as $$
   where c.user_id = auth.uid()
     and public.is_org_member(c.organization_id)
   limit 1;
-$$;
+$my_figma_connection$;
 
 grant execute on function public.my_figma_connection() to authenticated;
