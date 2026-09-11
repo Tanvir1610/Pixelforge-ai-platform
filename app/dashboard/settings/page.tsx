@@ -7,6 +7,9 @@ import { FolderPlus } from "lucide-react";
 import { requireSession } from "@/lib/auth/session";
 import { listProjects } from "@/lib/repositories/projects";
 import { createServiceClient } from "@/lib/supabase/server";
+import { getLatestVersionFiles } from "@/lib/repositories/code";
+import { loadGitHubPanel } from "@/lib/actions/github";
+import { GitHubPanel } from "./github-panel";
 import { SettingsForm } from "./settings-form";
 
 /**
@@ -32,8 +35,13 @@ async function figmaSource(projectId: string): Promise<string | null> {
   return data ? `figma.com/design/${data.figma_file_key}` : null;
 }
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ github?: string; github_error?: string }>;
+}) {
   const session = await requireSession();
+  const query = await searchParams;
   const projects = session.demo ? [] : await listProjects(session, 1);
   const project = projects[0] ?? null;
 
@@ -55,12 +63,37 @@ export default async function SettingsPage() {
     );
   }
 
-  const source = await figmaSource(project.id);
+  const [source, github, version] = await Promise.all([
+    figmaSource(project.id),
+    loadGitHubPanel(project.id),
+    getLatestVersionFiles(project.id),
+  ]);
+
+  const notice = query.github === "connected"
+    ? ({ kind: "connected" } as const)
+    : query.github_error
+      ? ({ kind: "error", detail: decodeURIComponent(query.github_error) } as const)
+      : undefined;
 
   return (
     <AppShell crumbs={[project.name, "Settings"]}>
       <PageHeading title="Project settings" description="Changes apply to the next generation unless noted." />
-      <SettingsForm project={project} figmaSource={source} />
+      <SettingsForm
+        project={project}
+        figmaSource={source}
+        github={
+          <GitHubPanel
+            configured={github.configured}
+            status={github.status}
+            repository={github.repository}
+            projectId={project.id}
+            projectName={project.name}
+            redirectUri={github.redirectUri}
+            hasGeneratedCode={(version?.files.length ?? 0) > 0}
+            notice={notice}
+          />
+        }
+      />
     </AppShell>
   );
 }

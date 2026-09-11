@@ -99,10 +99,13 @@ export interface ConnectContext {
   userId: string;
   /**
    * Widened beyond the host providers because the same one-time state table
-   * backs the Figma connect flow — the mechanism is identical and duplicating
-   * it would mean two places to get the replay handling right.
+   * backs the Figma and GitHub connect flows — the mechanism is identical and
+   * duplicating it would mean three places to get the replay handling right.
+   *
+   * Each callback narrows this to the provider it serves before doing anything
+   * with it, so a state issued for one flow cannot be redeemed by another.
    */
-  provider: ProviderKey | "figma";
+  provider: ProviderKey | "figma" | "github";
   redirectPath: string;
 }
 
@@ -125,7 +128,7 @@ export async function consumeState(state: string): Promise<ConnectContext | null
   return {
     organizationId: row.organization_id,
     userId: row.user_id,
-    provider: row.provider as ProviderKey | "figma",
+    provider: row.provider as ProviderKey | "figma" | "github",
     redirectPath: row.redirect_path,
   };
 }

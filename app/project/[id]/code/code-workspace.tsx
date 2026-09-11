@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, Check, Download, GitBranch, Info, Layers, Zap } from "lucide-react";
+import { useActionState } from "react";
+import { AlertTriangle, Check, Download, GitBranch, Github, Info, Layers, Zap } from "lucide-react";
 import { WorkspaceShell } from "@/components/layout/workspace-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,8 +12,12 @@ import { CODE_FILES } from "@/lib/data";
 import type { LatestCodeVersion, VersionSummary } from "@/lib/repositories/code";
 import { VersionHistory } from "@/components/code/version-history";
 import { askAssistantAction } from "@/lib/actions/assistant";
+import { pushToGitHubAction, type GitHubState } from "@/lib/actions/github";
+import type { ProjectRepository } from "@/lib/repositories/github";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
+
+const PUSH_INITIAL: GitHubState = {};
 
 /** Named, because a literal escape here has been mangled by tooling before. */
 const NEWLINE = String.fromCharCode(10);
@@ -68,11 +73,14 @@ export function CodeWorkspace({
   project,
   version,
   versions = [],
+  repository = null,
 }: {
   project: Project;
   version?: LatestCodeVersion | null;
   /** Every version of this project, newest first. Empty for the sample. */
   versions?: VersionSummary[];
+  /** Where this project pushes, when a repository has been linked. */
+  repository?: ProjectRepository | null;
 }) {
   const live = Boolean(version && version.files.length > 0);
 
@@ -133,6 +141,8 @@ export function CodeWorkspace({
       setAsking(null);
     }
   }
+
+  const [pushState, pushAction, pushPending] = useActionState(pushToGitHubAction, PUSH_INITIAL);
 
   return (
     <WorkspaceShell
@@ -227,6 +237,50 @@ export function CodeWorkspace({
         <aside aria-label="AI actions" className="hidden min-h-0 flex-col gap-2 overflow-y-auto border-l border-border-dark p-4 scrollbar-thin lg:flex">
           {/* The one thing a user most wants from this screen, and the one
               thing it could not do: get the code out. */}
+          {/* Push and download: the two ways generated code leaves this
+              platform. Until the GitHub integration landed there was neither,
+              and three separate buttons offering both did nothing. */}
+          {live && repository && (
+            <form action={pushAction} className="mb-1 flex flex-col gap-1.5">
+              <input type="hidden" name="projectId" value={project.id} />
+              <Button
+                type="submit"
+                size="sm"
+                loading={pushPending}
+                className="justify-start border border-[#2E2E2E] bg-[#1F1F1F] text-[#E5E7EB] hover:bg-[#262626] [&_svg]:text-[#9CA3AF]"
+              >
+                <Github />
+                Push to {repository.owner}/{repository.name}
+              </Button>
+              {pushState.message && (
+                <p className={cn(
+                  "text-caption leading-relaxed",
+                  pushState.ok ? "text-[#86EFAC]" : "text-[#FCA5A5]",
+                )}>
+                  {pushState.message}
+                  {pushState.commitUrl && (
+                    <>
+                      {" "}
+                      <a href={pushState.commitUrl} target="_blank" rel="noreferrer noopener" className="underline">
+                        View commit
+                      </a>
+                    </>
+                  )}
+                </p>
+              )}
+            </form>
+          )}
+
+          {live && !repository && (
+            <a
+              href="/dashboard/settings"
+              className="mb-1 flex items-center gap-2 rounded-md border border-[#2E2E2E] bg-[#1F1F1F] px-3 py-2 text-body-sm font-medium text-[#E5E7EB] transition-colors hover:bg-[#262626]"
+            >
+              <Github aria-hidden className="h-4 w-4 text-[#9CA3AF]" />
+              Connect a repository
+            </a>
+          )}
+
           {live && (
             <a
               href={`/api/projects/${project.id}/download`}

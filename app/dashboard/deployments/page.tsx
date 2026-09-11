@@ -7,6 +7,7 @@ import { requireSession } from "@/lib/auth/session";
 import { listDeployments } from "@/lib/repositories/library";
 import { listProjects } from "@/lib/repositories/projects";
 import { getLatestVersionFiles } from "@/lib/repositories/code";
+import { getGitHubStatus, getProjectRepository } from "@/lib/repositories/github";
 import { DeployWorkspace } from "./deploy-workspace";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,13 @@ export default async function DeploymentsPage() {
   const project = projects[0] ?? null;
   const latest = deployments[0] ?? null;
   // What there is to export, which is the only thing this screen can actually do.
-  const version = project ? await getLatestVersionFiles(project.id) : null;
+  const [version, repository, github] = project
+    ? await Promise.all([
+        getLatestVersionFiles(project.id),
+        getProjectRepository(project.id),
+        getGitHubStatus(session),
+      ])
+    : [null, null, null];
 
   return (
     <AppShell
@@ -54,6 +61,8 @@ export default async function DeploymentsPage() {
         projectName={project?.name ?? null}
         generatedFileCount={version?.files.length ?? 0}
         framework={project?.framework ?? null}
+        repository={repository}
+        githubConnected={Boolean(github?.isActive)}
       />
     </AppShell>
   );

@@ -2,11 +2,14 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Download, ExternalLink, LayoutGrid, Rocket } from "lucide-react";
+import { useActionState } from "react";
+import { Download, ExternalLink, Github, LayoutGrid, Rocket, Upload } from "lucide-react";
 import { Banner } from "@/components/ui/banner";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { pushToGitHubAction, type GitHubState } from "@/lib/actions/github";
+import type { ProjectRepository } from "@/lib/repositories/github";
 import type { Deployment } from "@/types";
 
 /**
@@ -29,12 +32,16 @@ import type { Deployment } from "@/types";
  * that is what this screen does. The recent-deployments table stays, because it
  * reads real rows and will fill in when a pipeline exists.
  */
+const PUSH_INITIAL: GitHubState = {};
+
 export function DeployWorkspace({
   deployments,
   projectId,
   projectName,
   generatedFileCount,
   framework,
+  repository = null,
+  githubConnected = false,
 }: {
   deployments: Deployment[];
   /** Null when the account has no project yet. */
@@ -42,8 +49,13 @@ export function DeployWorkspace({
   projectName: string | null;
   generatedFileCount: number;
   framework: string | null;
+  /** Where this project pushes, when a repository has been linked. */
+  repository?: ProjectRepository | null;
+  /** True when a GitHub account is connected for this workspace. */
+  githubConnected?: boolean;
 }) {
   const canExport = Boolean(projectId) && generatedFileCount > 0;
+  const [pushState, pushAction, pushPending] = useActionState(pushToGitHubAction, PUSH_INITIAL);
 
   const buildCommand =
     framework === "html" ? "none — static files" : framework === "vue" ? "vite build" : "next build";
@@ -93,6 +105,82 @@ export function DeployWorkspace({
 
         <Card>
           <CardHeader
+            title="GitHub"
+            description="One commit per generation, onto the branch you chose."
+          />
+          <CardBody>
+            {!githubConnected ? (
+              <>
+                <p className="text-body-sm text-content-secondary">
+                  Connect a GitHub account and this platform can create a repository and commit each
+                  generation to it — which is also the shortest route to a hosted site, since every
+                  host deploys from a repo.
+                </p>
+                <Link href="/dashboard/settings" className={buttonClasses("dark", "md", "self-start")}>
+                  <Github />
+                  Connect GitHub
+                </Link>
+              </>
+            ) : !repository ? (
+              <>
+                <p className="text-body-sm text-content-secondary">
+                  GitHub is connected. Choose a repository for this project and the generated code can
+                  be pushed to it.
+                </p>
+                <Link href="/dashboard/settings" className={buttonClasses("primary", "md", "self-start")}>
+                  Choose a repository
+                </Link>
+              </>
+            ) : (
+              <>
+                <p className="text-body-sm text-content-secondary">
+                  Pushes to{" "}
+                  {repository.htmlUrl ? (
+                    <a href={repository.htmlUrl} target="_blank" rel="noreferrer noopener" className="font-medium hover:text-accent">
+                      {repository.owner}/{repository.name}
+                    </a>
+                  ) : (
+                    <b>{repository.owner}/{repository.name}</b>
+                  )}{" "}
+                  on {repository.defaultBranch}
+                  {repository.lastPushedAt
+                    ? `, last pushed ${new Date(repository.lastPushedAt).toLocaleDateString()}.`
+                    : ". Nothing pushed yet."}
+                </p>
+
+                {pushState.message && (
+                  <Banner tone={pushState.ok ? "success" : "error"}>
+                    {pushState.message}
+                    {pushState.commitUrl && (
+                      <>
+                        {" "}
+                        <a href={pushState.commitUrl} target="_blank" rel="noreferrer noopener" className="underline">
+                          View the commit
+                        </a>
+                      </>
+                    )}
+                  </Banner>
+                )}
+
+                <form action={pushAction}>
+                  <input type="hidden" name="projectId" value={projectId ?? ""} />
+                  <Button type="submit" variant="primary" loading={pushPending} disabled={!canExport}>
+                    <Upload />
+                    Push generated code
+                  </Button>
+                </form>
+                {!canExport && (
+                  <p className="text-caption text-content-muted">
+                    Generate code first — there is nothing to push.
+                  </p>
+                )}
+              </>
+            )}
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader
             title="Hosting"
             description="What it takes to get this online, and what this platform does not yet do for you."
           />
@@ -106,16 +194,18 @@ export function DeployWorkspace({
             </Banner>
 
             <ol className="flex flex-col gap-3 text-body-sm">
-              <Step index={1}>Download the source above and unzip it.</Step>
+              <Step index={1}>
+                Push to GitHub above, or download the source and put it in a repository yourself.
+              </Step>
               <Step index={2}>
                 Install and build it locally: <code className="font-mono text-caption">npm install</code> then{" "}
                 <code className="font-mono text-caption">{buildCommand}</code>. This is also where you
                 find out whether the generated code compiles.
               </Step>
               <Step index={3}>
-                Push it to your own repository and connect that to your host. Vercel, Netlify and
-                Cloudflare Pages all deploy a {framework === "html" ? "static site" : "Next.js or Vite project"}{" "}
-                straight from a repo.
+                Connect that repository to your host. Vercel, Netlify and Cloudflare Pages all deploy a{" "}
+                {framework === "html" ? "static site" : "Next.js or Vite project"} straight from a repo,
+                and redeploy on every push — including the ones made from here.
               </Step>
             </ol>
 

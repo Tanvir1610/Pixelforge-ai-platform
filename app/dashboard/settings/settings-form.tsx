@@ -52,10 +52,13 @@ const INITIAL: ProjectMutationState = {};
 export function SettingsForm({
   project,
   figmaSource,
+  github,
 }: {
   project: ProjectRow;
   /** Where the design came from, or null if nothing has been imported. */
   figmaSource: string | null;
+  /** The GitHub card, rendered on the server so it can read the connection. */
+  github?: React.ReactNode;
 }) {
   const router = useRouter();
   const [active, setActive] = React.useState("General");
@@ -206,27 +209,7 @@ export function SettingsForm({
           </Card>
         </form>
 
-        <Card>
-          <CardHeader title="Repository" />
-          <CardBody>
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-bg-subtle text-content-muted">
-                <Github aria-hidden className="h-3.5 w-3.5" />
-              </span>
-              <div className="min-w-[200px] flex-1">
-                {/* Reported "basalt-studio/northwind-marketing · Connected ·
-                    pushes to main on every approved generation" for every
-                    account. There is no GitHub integration anywhere in this
-                    codebase, so nothing was ever pushed anywhere. */}
-                <b className="block text-body">Not connected</b>
-                <span className="text-caption text-content-muted">
-                  Pushing generated code to GitHub isn&apos;t built yet. Until it is, export from the
-                  Code screen.
-                </span>
-              </div>
-            </div>
-          </CardBody>
-        </Card>
+        {github}
 
         <Card className="border-[#FECACA]">
           <CardHeader

@@ -234,6 +234,56 @@ export type DesignAssetRow = {
   created_at: string;
 };
 
+/** See migration 0021. No client policy: read with the service role only. */
+export type GitHubConnectionRow = {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  github_user_id: string;
+  github_login: string;
+  access_token: string;
+  refresh_token: string | null;
+  /** Null means the token does not expire, not that the expiry is unknown. */
+  expires_at: string | null;
+  token_kind: "oauth" | "personal";
+  scope: string | null;
+  created_at: string;
+  updated_at: string;
+  revoked_at: string | null;
+};
+
+export type GitHubRepositoryRow = {
+  id: string;
+  project_id: string;
+  organization_id: string;
+  owner: string;
+  name: string;
+  default_branch: string;
+  html_url: string | null;
+  created_by_us: boolean;
+  last_pushed_sha: string | null;
+  last_pushed_at: string | null;
+  last_file_count: number | null;
+  connected_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type GitHubPushRow = {
+  id: string;
+  project_id: string;
+  organization_id: string;
+  code_version_id: string | null;
+  branch: string;
+  commit_sha: string | null;
+  commit_message: string | null;
+  file_count: number;
+  status: "succeeded" | "failed";
+  error_message: string | null;
+  pushed_by: string | null;
+  created_at: string;
+};
+
 export type FigmaConnectionRow = {
   id: string;
   organization_id: string;
@@ -865,6 +915,29 @@ export type Database = {
         Update: Partial<OauthStateRow>;
         Relationships: [];
       };
+      github_connections: {
+        Row: GitHubConnectionRow;
+        Insert: Pick<
+          GitHubConnectionRow,
+          "organization_id" | "user_id" | "github_user_id" | "github_login" | "access_token"
+        > &
+          Partial<GitHubConnectionRow>;
+        Update: Partial<GitHubConnectionRow>;
+        Relationships: [];
+      };
+      github_repositories: {
+        Row: GitHubRepositoryRow;
+        Insert: Pick<GitHubRepositoryRow, "project_id" | "organization_id" | "owner" | "name"> &
+          Partial<GitHubRepositoryRow>;
+        Update: Partial<GitHubRepositoryRow>;
+        Relationships: [];
+      };
+      github_pushes: {
+        Row: GitHubPushRow;
+        Insert: Pick<GitHubPushRow, "project_id" | "organization_id" | "branch"> & Partial<GitHubPushRow>;
+        Update: Partial<GitHubPushRow>;
+        Relationships: [];
+      };
       billing_plans: {
         Row: BillingPlanRow;
         Insert: Pick<BillingPlanRow, "key" | "display_name" | "amount_minor" | "ai_credits"> &
@@ -919,6 +992,16 @@ export type Database = {
       my_figma_connection: {
         Args: Record<never, never>;
         Returns: { figma_handle: string | null; expires_at: string | null; is_active: boolean }[];
+      };
+      my_github_connection: {
+        Args: Record<never, never>;
+        Returns: {
+          github_login: string;
+          expires_at: string | null;
+          is_active: boolean;
+          token_kind: string;
+          scope: string | null;
+        }[];
       };
       my_credit_balance: {
         Args: { p_organization_id: string };

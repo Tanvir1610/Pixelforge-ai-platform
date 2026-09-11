@@ -6,6 +6,7 @@ import { listProjects } from "@/lib/repositories/projects";
 import { getLatestVersionFiles, listVersions } from "@/lib/repositories/code";
 import { workspaceCounts } from "@/lib/repositories/design-detail";
 import { toWorkspaceProject } from "@/lib/presenters/project";
+import { getProjectRepository } from "@/lib/repositories/github";
 
 /**
  * Dynamic, because it shows the signed-in user's generated code. It was
@@ -31,10 +32,11 @@ export default async function CodePage({ params }: { params: Promise<{ id: strin
     return <CodeWorkspace project={getProject(id)} />;
   }
 
-  const [version, versions, counts] = await Promise.all([
+  const [version, versions, counts, repository] = await Promise.all([
     getLatestVersionFiles(real.id),
     listVersions(real.id, 20),
     workspaceCounts(session!, real.id),
+    getProjectRepository(real.id),
   ]);
 
   return (
@@ -42,6 +44,7 @@ export default async function CodePage({ params }: { params: Promise<{ id: strin
       project={toWorkspaceProject(real, { ...counts, generatedFiles: version?.files.length ?? 0 })}
       version={version}
       versions={versions}
+      repository={repository}
     />
   );
 }

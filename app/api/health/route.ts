@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPublicEnv, SupabaseConfigError } from "@/lib/supabase/env";
 import { isUpiConfigured } from "@/lib/payments/upi";
 import { figmaRedirectUri, figmaScope } from "@/lib/figma/oauth";
+import { githubRedirectUri, githubScope } from "@/lib/github/oauth";
 
 /**
  * Deployment diagnostics.
@@ -175,11 +176,37 @@ export async function GET() {
       "Register scope there too. Both are matched exactly.",
   };
 
+  /**
+   * GitHub.
+   *
+   * Reported the same way as Figma, and for the same reason: the one failure
+   * that cannot be diagnosed from outside is a callback URL registered with a
+   * different path, and the fix needs the exact string. A GitHub OAuth App has
+   * one registered callback, so an app already serving Supabase sign-in cannot
+   * also serve this — which is why the token path exists and is noted here.
+   */
+  const github = {
+    clientId: describe(process.env.GITHUB_CLIENT_ID),
+    clientSecret: describe(process.env.GITHUB_CLIENT_SECRET),
+    usable: Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
+    scope: githubScope(),
+    // Not a secret: it travels in every authorize URL.
+    clientIdValue: process.env.GITHUB_CLIENT_ID?.trim() ?? null,
+    redirectUri: appUrlOrigin
+      ? githubRedirectUri(appUrlOrigin)
+      : "(derived from the request host — set NEXT_PUBLIC_APP_URL to pin it)",
+    hint:
+      "Register redirectUri as the OAuth app's Authorization callback URL, verbatim. A GitHub OAuth " +
+      "app allows only one, so if this app is also used for Supabase sign-in, register a second app " +
+      "for the repository connection — or connect with a personal access token, which needs no app.",
+  };
+
   return NextResponse.json(
     {
       configured,
       problem,
       hint,
+      github,
       payments: {
         upi,
         razorpay,

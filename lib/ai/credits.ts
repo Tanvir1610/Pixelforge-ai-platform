@@ -170,4 +170,10 @@ export const RATE_LIMITS = {
   assistant: { limit: 20, windowSeconds: 60 },
   /** Importing, which costs a Figma call and possibly a vision call. */
   import: { limit: 10, windowSeconds: 60 },
+  /**
+   * Pushing to GitHub. Low on purpose: each one writes a commit to somebody
+   * else's repository, and a loop would be both a mess in their history and a
+   * quick way to meet GitHub's own rate limit on an account that is not ours.
+   */
+  githubPush: { limit: 10, windowSeconds: 300 },
 } as const;
