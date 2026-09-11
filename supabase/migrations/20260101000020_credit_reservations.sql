@@ -283,21 +283,29 @@ stable
 security definer
 set search_path = public
 as $balance$
+  -- A lateral join rather than GROUP BY.
+  --
+  -- The original grouped by o.ai_credits_limit, which was fine while every
+  -- other selected expression was an aggregate. Adding held_credits(o.id)
+  -- referenced a column that was neither grouped nor aggregated:
+  --   ERROR: column "o.id" must appear in the GROUP BY clause
+  -- Computing the sum in a subquery removes the aggregate from the outer
+  -- select entirely, so there is no grouping to get wrong, and `used` is still
+  -- scanned once.
   select
-    coalesce(sum(u.quantity), 0) as used,
+    usage.used,
     o.ai_credits_limit as "limit",
-    greatest(
-      0,
-      o.ai_credits_limit - coalesce(sum(u.quantity), 0) - public.held_credits(o.id)
-    ) as remaining
+    greatest(0, o.ai_credits_limit - usage.used - public.held_credits(o.id)) as remaining
   from public.organizations o
-  left join public.usage_records u
-    on u.organization_id = o.id
-   and u.metric = 'ai_credits'
-   and u.occurred_at >= date_trunc('month', now())
+  cross join lateral (
+    select coalesce(sum(u.quantity), 0) as used
+    from public.usage_records u
+    where u.organization_id = o.id
+      and u.metric = 'ai_credits'
+      and u.occurred_at >= date_trunc('month', now())
+  ) usage
   where o.id = p_organization_id
-    and public.is_org_member(o.id)
-  group by o.ai_credits_limit;
+    and public.is_org_member(o.id);
 $balance$;
 
 -- Service role only. A client that could reserve, settle or release its own
@@ -363,10 +371,14 @@ begin
   from public.rate_limit_hits
   where bucket = p_bucket and occurred_at > v_window_start;
 
-  -- Opportunistic cleanup: this table is write-heavy and read-narrow, and a
-  -- separate scheduled job for it would be one more thing to forget.
-  delete from public.rate_limit_hits
-  where occurred_at < now() - interval '1 day';
+  -- Opportunistic cleanup, and deliberately rare: this runs on the hot path of
+  -- every limited request, and a full sweep each time would cost more than the
+  -- limiting does. One run in a hundred keeps the table bounded without making
+  -- every caller pay for it.
+  if random() < 0.01 then
+    delete from public.rate_limit_hits
+    where occurred_at < now() - interval '1 day';
+  end if;
 
   return query select
     v_count <= p_limit,

@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:verify": "bash scripts/verify-db.sh",
+    "db:check": "node scripts/verify-migrations.mjs",
     "check:supabase": "node scripts/check-supabase.mjs",
     "db:push": "supabase db push",
     "db:types": "node -e \"console.error('lib/db/database.types.ts is hand-written; generating over it drops 54 named exports that 20 files import. Edit it by hand, then run npm run typecheck.'); process.exit(1)\""
@@ -29,6 +30,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@types/node": "22.10.7",
     "@types/pngjs": "^6.0.5",
     "@types/qrcode": "^1.5.6",
