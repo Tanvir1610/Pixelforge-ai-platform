@@ -238,6 +238,8 @@ export type FigmaConnectionRow = {
   id: string;
   organization_id: string;
   user_id: string;
+  /** Which header the token is sent with. See migration 0019. */
+  token_kind: "oauth" | "personal";
   figma_user_id: string;
   figma_handle: string | null;
   access_token: string;

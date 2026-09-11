@@ -3,12 +3,14 @@
 import * as React from "react";
 import { useActionState } from "react";
 import { useRouter } from "next/navigation";
-import { Link2, Lock, Upload } from "lucide-react";
+import { KeyRound, Link2, Lock, Upload } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  connectFigmaAction, importFigmaFileAction, importImageAction, type ImportState,
+  connectFigmaAction, connectFigmaTokenAction, importFigmaFileAction,
+  importImageAction, type ImportState,
 } from "@/lib/actions/import";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +43,7 @@ export function ImportOptions({
   const router = useRouter();
   const [state, formAction, pending] = useActionState(importFigmaFileAction, INITIAL);
   const [uploadState, uploadAction, uploading] = useActionState(importImageAction, INITIAL);
+  const [tokenState, tokenAction, connectingToken] = useActionState(connectFigmaTokenAction, INITIAL);
   const uploadForm = React.useRef<HTMLFormElement>(null);
   const [dragging, setDragging] = React.useState(false);
   const fileInput = React.useRef<HTMLInputElement>(null);
@@ -92,10 +95,59 @@ export function ImportOptions({
             onClick and no form — the table, the read path and the token column
             all existed, and clicking did nothing. */}
         <form action={connectFigmaAction}>
-          <Button type="submit" variant={figmaConnected ? "secondary" : "primary"} disabled={demo}>
-            {figmaConnected ? "Reconnect" : "Connect Figma"}
+          <Button type="submit" variant="secondary" disabled={demo}>
+            {figmaConnected ? "Reconnect" : "Use OAuth"}
           </Button>
         </form>
+      </section>
+
+      {/* The path that works for any account.
+          The OAuth app is published privately, so it is visible only to the
+          organization that owns it and everyone else is told it does not exist.
+          A personal token needs no app, no review and no waiting, and grants
+          exactly the files its own account can already open. */}
+      <section className="flex flex-col gap-3.5 rounded-[14px] border border-border bg-bg-surface px-6 py-[22px]">
+        <div className="flex items-center gap-4">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-[10px] bg-bg-subtle">
+            <KeyRound aria-hidden className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-semibold">
+              Connect with a Figma token
+              {!figmaConnected && <Badge tone="accent" className="ml-2">Recommended</Badge>}
+            </h2>
+            <p className="text-body-sm text-content-muted">
+              Works with any Figma account. Create one under Settings → Security → Personal access tokens,
+              with file content read access.
+            </p>
+          </div>
+        </div>
+
+        <form action={tokenAction} className="flex flex-wrap gap-2">
+          <Input
+            name="figmaToken"
+            type="password"
+            className="min-w-[240px] flex-1"
+            icon={<KeyRound />}
+            aria-label="Figma personal access token"
+            placeholder="figd_…"
+            autoComplete="off"
+            disabled={demo || connectingToken}
+          />
+          <Button type="submit" variant="primary" loading={connectingToken} disabled={demo}>
+            Connect
+          </Button>
+        </form>
+
+        {tokenState.message && (
+          <Banner tone={tokenState.message.startsWith("Connected") ? "success" : "error"}>
+            {tokenState.message}
+          </Banner>
+        )}
+
+        <p className="text-caption text-content-muted">
+          Stored encrypted against your workspace and never shown again. Revoke it any time from Figma.
+        </p>
       </section>
 
       <form action={formAction} className="flex flex-col gap-3.5 rounded-[14px] border border-border bg-bg-surface px-6 py-[22px]">

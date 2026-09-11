@@ -9,6 +9,7 @@ import { startAnalysisRun } from "@/lib/repositories/generation";
 import { ingestFigmaFile } from "@/lib/figma/ingest";
 import { parseFigmaUrl } from "@/lib/figma/url";
 import { beginFigmaConnect, isFigmaOauthConfigured } from "@/lib/figma/oauth";
+import { FigmaTokenError, savePersonalToken, verifyPersonalToken } from "@/lib/figma/personal-token";
 import { classifyUpload, ingestImage, storeUpload, UNSUPPORTED_MESSAGE } from "@/lib/figma/image-ingest";
 import { isInferenceConfigured } from "@/lib/ai/bootstrap";
 import { markRun, markStep } from "@/lib/repositories/generation";
@@ -40,7 +41,7 @@ async function resolveFigmaToken(
   const supabase = createServiceClient();
   const { data } = await supabase
     .from("figma_connections")
-    .select("access_token, expires_at, revoked_at")
+    .select("access_token, expires_at, revoked_at, token_kind")
     .eq("organization_id", organizationId)
     .is("revoked_at", null)
     .limit(1)
@@ -48,7 +49,9 @@ async function resolveFigmaToken(
 
   if (data?.access_token) {
     const expired = data.expires_at ? new Date(data.expires_at).getTime() < Date.now() : false;
-    if (!expired) return { accessToken: data.access_token, tokenKind: "oauth" };
+    // The kind is read, not assumed: OAuth sends a bearer and a personal token
+    // sends X-Figma-Token, and the wrong one comes back as a bare 401.
+    if (!expired) return { accessToken: data.access_token, tokenKind: data.token_kind ?? "oauth" };
   }
 
   const personal = process.env.FIGMA_PERSONAL_ACCESS_TOKEN;
@@ -260,3 +263,44 @@ const IMAGE_IMPORT_STEPS: [string, string][] = [
   ["interpret", "Reading the layout"],
   ["persist", "Building the component tree"],
 ];
+
+/**
+ * Connects Figma with a personal access token.
+ *
+ * The OAuth app on this deployment is published privately, so it is visible
+ * only to the organization that owns it and every other account is told it does
+ * not exist. Making it work for anyone means a Public app and Figma's review.
+ *
+ * This path needs none of that, and is not a downgrade: a personal token
+ * authorises exactly the files its own account can open — the same boundary
+ * OAuth draws — and it is the user's own credential to revoke.
+ */
+export async function connectFigmaTokenAction(_prev: ImportState, formData: FormData): Promise<ImportState> {
+  const token = formData.get("figmaToken");
+
+  if (typeof token !== "string" || !token.trim()) {
+    return { message: "Paste your Figma personal access token." };
+  }
+
+  try {
+    const session = await requireOrgRole("developer");
+
+    // Checked against Figma before it is stored, so a mistyped paste fails here
+    // rather than at the first import, where it would read as a broken product.
+    const account = await verifyPersonalToken(token);
+
+    await savePersonalToken({
+      organizationId: session.organization.id,
+      userId: session.user.id,
+      token,
+      account,
+    });
+
+    revalidatePath("/dashboard/import");
+    return { message: `Connected as ${account.handle}. You can import any file that account can open.` };
+  } catch (error) {
+    if (error instanceof FigmaTokenError) return { message: error.message };
+    console.error("[connect:figma:token]", error);
+    return { message: "That token could not be saved. Try again in a moment." };
+  }
+}
