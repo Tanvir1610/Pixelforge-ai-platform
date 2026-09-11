@@ -10,6 +10,7 @@ import type { DesignAnalysis } from "@/lib/ai/schemas";
 import { GENERATION_STEPS } from "@/lib/ai/generation-stage";
 import { generateStep, loadGenerationPlan, type StepOutcome } from "@/lib/ai/incremental-generation";
 import { isInferenceConfigured } from "@/lib/ai/bootstrap";
+import { checkRateLimit, RATE_LIMITS } from "@/lib/ai/credits";
 import { listProjects } from "@/lib/repositories/projects";
 import { createServiceClient } from "@/lib/supabase/server";
 
@@ -56,6 +57,15 @@ export async function planProjectAction(): Promise<PlanOutcome> {
   // here rather than refusing: "run the analysis first" is a step the user
   // gains nothing by performing by hand, and forgetting it was the difference
   // between this button working and failing on its first call.
+  const planLimit = await checkRateLimit(
+    `plan:${session.organization.id}`,
+    RATE_LIMITS.plan.limit,
+    RATE_LIMITS.plan.windowSeconds,
+  );
+  if (!planLimit.allowed) {
+    return { ok: false, message: `Too many planning runs at once. Try again in ${planLimit.retryAfterSeconds}s.` };
+  }
+
   const analysis = await getLatestArtifact<DesignAnalysis>(project.id, "design_analysis");
   if (!analysis) {
     const analysisRunId = await startAnalysisRun(project.id, "manual", ANALYSIS_STAGE_STEPS);
@@ -112,6 +122,17 @@ export async function startCodegenAction(): Promise<CodegenStart> {
   if (!project) return { ok: false, message: "Create a project and import a design first." };
   if (!isInferenceConfigured()) {
     return { ok: false, message: "No AI provider is configured. Set ANTHROPIC_API_KEY to generate code." };
+  }
+
+  // Bounded per workspace. Every step below is a paid model call, and the
+  // client drives the loop, so nothing else stopped one from running away.
+  const limit = await checkRateLimit(
+    `generate:${session.organization.id}`,
+    RATE_LIMITS.generate.limit,
+    RATE_LIMITS.generate.windowSeconds,
+  );
+  if (!limit.allowed) {
+    return { ok: false, message: `Too many generations at once. Try again in ${limit.retryAfterSeconds}s.` };
   }
 
   const plan = await loadGenerationPlan(project.id);

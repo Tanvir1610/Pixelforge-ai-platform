@@ -942,6 +942,27 @@ export type Database = {
         };
         Returns: string;
       };
+      reserve_credits: {
+        Args: {
+          p_organization_id: string; p_needed: number; p_purpose: string;
+          p_project_id?: string | null; p_actor?: string | null;
+        };
+        Returns: string | null;
+      };
+      settle_credit_reservation: {
+        Args: { p_reservation_id: string; p_actual?: number | null };
+        Returns: number;
+      };
+      release_credit_reservation: {
+        Args: { p_reservation_id: string; p_reason?: string | null };
+        Returns: boolean;
+      };
+      expire_credit_reservations: { Args: Record<string, never>; Returns: number };
+      held_credits: { Args: { p_organization_id: string }; Returns: number };
+      check_rate_limit: {
+        Args: { p_bucket: string; p_limit: number; p_window_seconds?: number };
+        Returns: { allowed: boolean; hits: number; retry_after_seconds: number }[];
+      };
       has_credits: {
         Args: { p_organization_id: string; p_needed?: number };
         Returns: boolean;

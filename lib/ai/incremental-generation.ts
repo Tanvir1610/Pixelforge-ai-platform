@@ -8,6 +8,7 @@ import { writeVersion } from "@/lib/repositories/code";
 import { runCodeStep } from "./agents/code-generator";
 import { AnalystError } from "./agents/design-analyst";
 import { bootstrapProviders } from "./bootstrap";
+import { OutOfCreditsError, releaseCredits, reserveCredits, settleCredits } from "./credits";
 import type { ArchitecturePlan, ComponentPlan } from "./planning-schemas";
 
 /**
@@ -125,25 +126,51 @@ export async function generateStep(input: {
       await markStep(runId, "generate_code", "running");
     }
 
-    // Checked per step rather than once up front: a long generation must stop
-    // when the balance runs out, not discover it at the end.
-    const { data: hasCredits } = await supabase.rpc("has_credits", {
-      p_organization_id: organizationId,
-      p_needed: 1,
-    });
-    if (hasCredits === false) throw new AnalystError("no_credits", USER_MESSAGE.no_credits);
+    // Reserved, not merely checked. The old `has_credits` read took no lock, so
+    // two steps arriving together both saw a sufficient balance; and because
+    // the charge only happened on success, a failing step cost the user nothing
+    // while costing us every token it burned.
+    //
+    // Held per step rather than once up front: a long generation must stop when
+    // the balance runs out, not discover it at the end.
+    let reservation;
+    try {
+      reservation = await reserveCredits({
+        organizationId,
+        needed: 1,
+        purpose: `codegen:${step}`.slice(0, 120),
+        projectId,
+        actorUserId,
+      });
+    } catch (error) {
+      if (error instanceof OutOfCreditsError) {
+        throw new AnalystError("no_credits", USER_MESSAGE.no_credits);
+      }
+      throw error;
+    }
 
     // What already exists, so the model extends the project rather than
     // starting it over. Read back from the version rather than kept in memory.
     const existingFiles = await listCurrentFiles(projectId);
 
-    const result = await runCodeStep({
-      step,
-      architecture: plan.architecture,
-      components: plan.components,
-      document,
-      existingFiles,
-    });
+    let result;
+    try {
+      result = await runCodeStep({
+        step,
+        architecture: plan.architecture,
+        components: plan.components,
+        document,
+        existingFiles,
+      });
+    } catch (error) {
+      // The step failed. The claim goes back rather than being silently kept.
+      await releaseCredits(reservation.id, error instanceof Error ? error.message : "step failed");
+      throw error;
+    }
+
+    // Charged against what the call actually produced, rounded up so a call
+    // always costs at least the one credit it reserved.
+    await settleCredits(reservation.id, Math.max(1, Math.ceil(result.usage.outputTokens / 1000)));
 
     await recordModelRun({
       organizationId,

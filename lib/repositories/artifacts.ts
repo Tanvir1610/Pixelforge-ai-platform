@@ -30,9 +30,14 @@ export async function recordModelRun(params: {
 }): Promise<string | null> {
   const supabase = createServiceClient();
 
-  // Credits are metered off output tokens, rounded up, so a call always costs
-  // at least one credit. Computed server-side; never supplied by a client.
-  const credits = Math.max(1, Math.ceil(params.usage.outputTokens / 1000));
+  // Credits are NOT charged here any more.
+  //
+  // This used to meter them off output tokens and charge on success, which
+  // meant a failed call — tokens already spent at the provider — cost the user
+  // nothing, and two concurrent calls could each pass an unlocked balance
+  // check. Charging now happens once, when a reservation is settled; see
+  // lib/ai/credits.ts. This function stays what its name says: the ledger of
+  // what ran, what it produced and what it cost us.
   const status = params.status ?? "completed";
 
   // One RPC rather than an insert followed by a usage write: a run must never
@@ -51,7 +56,7 @@ export async function recordModelRun(params: {
     p_cost_usd: params.usage.costUsd,
     p_latency_ms: params.usage.latencyMs,
     p_status: status,
-    p_credits: status === "completed" ? credits : 0,
+    p_credits: 0,
   });
 
   if (error) return null;

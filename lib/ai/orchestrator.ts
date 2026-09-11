@@ -6,6 +6,9 @@ import { recordModelRun, saveArtifact } from "@/lib/repositories/artifacts";
 import { markRun, markStep } from "@/lib/repositories/generation";
 import { AnalystError, runDesignAnalyst } from "./agents/design-analyst";
 import { bootstrapProviders } from "./bootstrap";
+import {
+  OutOfCreditsError, releaseCredits, reserveCredits, settleCredits, type Reservation,
+} from "./credits";
 import type { Json } from "@/lib/db/database.types";
 
 /**
@@ -63,6 +66,9 @@ export async function runAnalysisStage(input: AnalysisStageInput): Promise<Analy
   const supabase = createServiceClient();
   await markRun(runId, "running");
 
+  // Declared out here so the catch below can give the claim back.
+  let reservation: Reservation | undefined;
+
   try {
     await markStep(runId, "load_ir", "running");
     const document = await loadDesignDocument(projectId);
@@ -78,17 +84,27 @@ export async function runAnalysisStage(input: AnalysisStageInput): Promise<Analy
     // message instead of a half-finished run they were still charged for.
     // The balance is computed in Postgres from usage_records — never trusted
     // from a client.
-    const { data: hasCredits } = await supabase.rpc("has_credits", {
-      p_organization_id: organizationId,
-      p_needed: 1,
-    });
-
-    if (hasCredits === false) {
-      throw new AnalystError("no_credits", USER_MESSAGE.no_credits);
+    // Reserved rather than read: the old check took no lock, and a failure
+    // charged nothing while still spending tokens at the provider.
+    try {
+      reservation = await reserveCredits({
+        organizationId,
+        needed: 1,
+        purpose: "design_analysis",
+        projectId,
+      });
+    } catch (error) {
+      if (error instanceof OutOfCreditsError) {
+        throw new AnalystError("no_credits", USER_MESSAGE.no_credits);
+      }
+      throw error;
     }
+
 
     await markStep(runId, "analyse_design", "running");
     const result = await runDesignAnalyst({ document });
+
+    await settleCredits(reservation.id, Math.max(1, Math.ceil(result.usage.outputTokens / 1000)));
 
     const modelRunId = await recordModelRun({
       organizationId,
@@ -155,6 +171,10 @@ export async function runAnalysisStage(input: AnalysisStageInput): Promise<Analy
       costUsd: result.usage.costUsd,
     };
   } catch (error) {
+    // Whatever went wrong, the claim goes back: the work did not land.
+    if (reservation) {
+      await releaseCredits(reservation.id, error instanceof Error ? error.message : "analysis failed");
+    }
     const code = error instanceof AnalystError ? error.code : "provider_error";
     const message = USER_MESSAGE[code] ?? USER_MESSAGE.provider_error;
 

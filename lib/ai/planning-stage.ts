@@ -8,6 +8,9 @@ import { runArchitecturePlanner } from "./agents/architecture-planner";
 import { runComponentPlanner } from "./agents/component-planner";
 import { AnalystError } from "./agents/design-analyst";
 import { bootstrapProviders } from "./bootstrap";
+import {
+  OutOfCreditsError, releaseCredits, reserveCredits, settleCredits, type Reservation,
+} from "./credits";
 import type { DesignAnalysis } from "./schemas";
 import type { ArchitecturePlan, ComponentPlan } from "./planning-schemas";
 
@@ -50,6 +53,9 @@ export async function runPlanningStage(input: PlanningStageInput): Promise<Plann
   const supabase = createServiceClient();
   await markRun(runId, "running");
 
+  // Declared out here so the catch below can give the claim back.
+  let reservation: Reservation | undefined;
+
   try {
     await markStep(runId, "load_plan_inputs", "running");
 
@@ -73,11 +79,21 @@ export async function runPlanningStage(input: PlanningStageInput): Promise<Plann
 
     // Checked once for the stage, not per call — both planners are cheap
     // relative to generation, and a mid-stage stop leaves a half-plan.
-    const { data: hasCredits } = await supabase.rpc("has_credits", {
-      p_organization_id: organizationId,
-      p_needed: 2,
-    });
-    if (hasCredits === false) throw new AnalystError("no_credits", USER_MESSAGE.no_credits);
+    // Reserved rather than read: the old check took no lock, and a failure
+    // charged nothing while still spending tokens at the provider.
+    try {
+      reservation = await reserveCredits({
+        organizationId,
+        needed: 2,
+        purpose: "planning",
+        projectId,
+      });
+    } catch (error) {
+      if (error instanceof OutOfCreditsError) {
+        throw new AnalystError("no_credits", USER_MESSAGE.no_credits);
+      }
+      throw error;
+    }
 
     await markStep(runId, "plan_architecture", "running");
     const architecture = await runArchitecturePlanner({
@@ -127,9 +143,23 @@ export async function runPlanningStage(input: PlanningStageInput): Promise<Plann
       `${components.plan.components.length} of ${components.candidates} candidates`,
     );
 
+    // Both planner calls landed, so the held claim becomes a charge. Metered
+    // off what they produced rather than the flat estimate reserved.
+    await settleCredits(
+      reservation.id,
+      Math.max(
+        1,
+        Math.ceil((architecture.usage.outputTokens + components.usage.outputTokens) / 1000),
+      ),
+    );
+
     await markRun(runId, "completed");
     return { ok: true, architecture: architecture.plan, components: components.plan };
   } catch (error) {
+    // Whatever went wrong, the claim goes back: the work did not land.
+    if (reservation) {
+      await releaseCredits(reservation.id, error instanceof Error ? error.message : "planning failed");
+    }
     const code = error instanceof AnalystError ? error.code : "provider_error";
     const message = USER_MESSAGE[code] ?? USER_MESSAGE.provider_error;
 

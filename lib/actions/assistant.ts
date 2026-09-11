@@ -7,6 +7,7 @@ import { recordModelRun } from "@/lib/repositories/artifacts";
 import { listProjects } from "@/lib/repositories/projects";
 import { bootstrapProviders, isInferenceConfigured } from "@/lib/ai/bootstrap";
 import { resolveProvider } from "@/lib/ai/registry";
+import { checkRateLimit, OutOfCreditsError, RATE_LIMITS, releaseCredits, reserveCredits, settleCredits } from "@/lib/ai/credits";
 import type { ModelMessage } from "@/lib/ai/types";
 
 /**
@@ -118,14 +119,37 @@ export async function askAssistantAction(input: {
 
   const supabase = createServiceClient();
 
-  // Checked before the call rather than after, so nobody is charged for a run
-  // that was never allowed to happen.
-  const { data: hasCredits } = await supabase.rpc("has_credits", {
-    p_organization_id: session.organization.id,
-    p_needed: 1,
-  });
-  if (hasCredits === false) {
-    return { ok: false, message: "You've used this month's AI credits. They reset at the start of next month." };
+  // Bounded per workspace. Each of these is a paid call, and nothing else
+  // stopped a loop from spending a month's allowance in seconds.
+  const limit = await checkRateLimit(
+    `assistant:${session.organization.id}`,
+    RATE_LIMITS.assistant.limit,
+    RATE_LIMITS.assistant.windowSeconds,
+  );
+  if (!limit.allowed) {
+    return {
+      ok: false,
+      message: `That's a lot of questions at once. Try again in ${limit.retryAfterSeconds}s.`,
+    };
+  }
+
+  // Held against the balance for the duration, not merely checked: the old read
+  // took no lock, and a failed call charged nothing while still spending real
+  // tokens at the provider.
+  let reservation;
+  try {
+    reservation = await reserveCredits({
+      organizationId: session.organization.id,
+      needed: 1,
+      purpose: "assistant",
+      projectId: project.id,
+      actorUserId: session.user.id,
+    });
+  } catch (error) {
+    if (error instanceof OutOfCreditsError) {
+      return { ok: false, message: "You've used this month's AI credits. They reset at the start of next month." };
+    }
+    throw error;
   }
 
   const context = await designContext(session, project.id);
@@ -171,6 +195,8 @@ export async function askAssistantAction(input: {
 
     // Every call is metered, including this one. An assistant that spent
     // credits without recording them would make cost reporting wrong.
+    await settleCredits(reservation.id, Math.max(1, Math.ceil(result.usage.outputTokens / 1000)));
+
     await recordModelRun({
       organizationId: session.organization.id,
       projectId: project.id,
@@ -187,6 +213,8 @@ export async function askAssistantAction(input: {
       status: `${result.modelKey} · ${result.usage.inputTokens + result.usage.outputTokens} tokens · ${Math.round(result.usage.latencyMs)}ms`,
     };
   } catch (error) {
+    // The claim goes back: the answer never arrived, so it is not charged for.
+    await releaseCredits(reservation.id, error instanceof Error ? error.message : "assistant failed");
     console.error("[assistant]", error);
     return { ok: false, message: "The model provider didn't respond. Try again in a moment." };
   }
