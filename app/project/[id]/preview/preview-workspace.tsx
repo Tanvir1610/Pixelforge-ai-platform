@@ -12,6 +12,8 @@ import { Segmented } from "@/components/ui/segmented";
 import { BrowserFrame } from "@/components/preview/browser-frame";
 import { DeviceToolbar, type Zoom } from "@/components/preview/device-toolbar";
 import { MiniSite, ScaledSite } from "@/components/preview/mini-site";
+import { DesignPreview } from "@/components/preview/design-preview";
+import type { FramePreview } from "@/lib/repositories/design-read";
 import { useSequence } from "@/hooks/use-sequence";
 import { GENERATION_TASKS } from "@/lib/data";
 import type { DeviceKey, Project } from "@/types";
@@ -27,10 +29,15 @@ export function PreviewWorkspace({
   assistantLive = false,
   assistantHistory,
   files,
+  frame,
+  generatedFileCount = 0,
 }: {
   project: Project;
   /** Real generated file paths; absent for the sample project. */
   files?: string[];
+  /** The imported frame, drawn from its own geometry. */
+  frame?: FramePreview | null;
+  generatedFileCount?: number;
   /** True when a real project backs this screen, so the assistant can answer. */
   assistantLive?: boolean;
   assistantHistory?: { role: "user" | "assistant"; body: string }[];
@@ -81,10 +88,27 @@ export function PreviewWorkspace({
               className="h-fit w-full"
               compact={device === "mobile"}
             >
-              <div className="mx-auto" style={{ maxWidth: width }}>
-                <ScaledSite scale={scale} width={width} height={620}>
-                  <MiniSite brand={project.brand} headline={project.headline} device={device} dark={project.theme === "dark"} />
-                </ScaledSite>
+              <div className="mx-auto flex flex-col items-center gap-2" style={{ maxWidth: width }}>
+                {/* The imported design, drawn from its own nodes.
+                    Not the generated site: rendering that needs it built and
+                    served, which this deployment cannot do. A fabricated page
+                    in its place — which is what this showed — is
+                    indistinguishable from a working preview. */}
+                {frame ? (
+                  <>
+                    <DesignPreview frame={frame} maxWidth={width} maxHeight={620} />
+                    <p className="text-caption text-content-muted">
+                      {frame.name} · imported design ·{" "}
+                      {generatedFileCount > 0
+                        ? `${generatedFileCount} files generated, not yet built`
+                        : "nothing generated yet"}
+                    </p>
+                  </>
+                ) : (
+                  <ScaledSite scale={scale} width={width} height={620}>
+                    <MiniSite brand={project.brand} headline={project.headline} device={device} dark={project.theme === "dark"} />
+                  </ScaledSite>
+                )}
               </div>
             </BrowserFrame>
           </main>

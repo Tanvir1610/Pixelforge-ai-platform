@@ -3,7 +3,7 @@ import { ResponsiveWorkspace } from "./responsive-workspace";
 import { getProject, PROJECTS } from "@/lib/data";
 import { getSession } from "@/lib/auth/session";
 import { listProjects } from "@/lib/repositories/projects";
-import { getDesignSummary } from "@/lib/repositories/design-read";
+import { getDesignSummary, loadFramePreviews } from "@/lib/repositories/design-read";
 
 /**
  * Dynamic: the breakpoints shown are the ones the project's own frames were
@@ -24,12 +24,15 @@ export default async function ResponsivePage({ params }: { params: Promise<{ id:
   const owned = session && !session.demo ? await listProjects(session, 20) : [];
   const real = isSampleId ? null : owned.find((project) => project.id === id || project.slug === id);
 
-  const summary = real && session ? await getDesignSummary(session, real.id) : null;
+  const [summary, previews] = real && session
+    ? await Promise.all([getDesignSummary(session, real.id), loadFramePreviews(session, real.id, 4)])
+    : [null, []];
 
   return (
     <ResponsiveWorkspace
       project={real ? { ...getProject(id), id: real.id, name: real.name } : getProject(id)}
       frames={summary?.frames ?? []}
+      previews={previews}
       live={Boolean(real)}
     />
   );

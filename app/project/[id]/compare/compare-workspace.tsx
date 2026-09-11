@@ -12,6 +12,8 @@ import { Segmented } from "@/components/ui/segmented";
 import { MiniSite, ScaledSite } from "@/components/preview/mini-site";
 import { MATCH_METRICS, VISUAL_DIFFERENCES } from "@/lib/data";
 import type { ComparisonSummary } from "@/lib/repositories/visual";
+import { DesignPreview } from "@/components/preview/design-preview";
+import type { FramePreview } from "@/lib/repositories/design-read";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
 
@@ -29,10 +31,13 @@ const OVERLAYS = [
 export function CompareWorkspace({
   project,
   comparisons = [],
+  frame,
   live = false,
 }: {
   project: Project;
   comparisons?: ComparisonSummary[];
+  /** The imported frame — the left-hand "original" is this, not an invention. */
+  frame?: FramePreview | null;
   live?: boolean;
 }) {
   const [mode, setMode] = React.useState<Mode>("side");
@@ -81,10 +86,17 @@ export function CompareWorkspace({
             Original Figma
             <Badge>Home / Desktop 1440</Badge>
           </h2>
-          <div className="min-h-0 flex-1 overflow-hidden rounded-[10px] border border-border bg-bg-surface shadow-md">
-            <ScaledSite scale={2} height={560}>
-              <MiniSite brand={project.brand} headline={project.headline} dark={project.theme === "dark"} />
-            </ScaledSite>
+          <div className="grid min-h-0 flex-1 place-items-center overflow-hidden rounded-[10px] border border-border bg-bg-surface shadow-md">
+            {/* The real imported frame. This panel is labelled "Original Figma"
+                and drew a fabricated marketing page, which made the comparison
+                beside it meaningless even when a score existed. */}
+            {frame ? (
+              <DesignPreview frame={frame} maxWidth={520} maxHeight={540} />
+            ) : (
+              <ScaledSite scale={2} height={560}>
+                <MiniSite brand={project.brand} headline={project.headline} dark={project.theme === "dark"} />
+              </ScaledSite>
+            )}
           </div>
         </section>
 
@@ -189,13 +201,26 @@ export function CompareWorkspace({
         <section aria-label="Generated website" className="order-3 flex min-h-0 flex-col gap-3 bg-bg-subtle p-6 lg:order-none">
           <h2 className="flex items-center justify-between text-body-sm font-semibold">
             Generated website
-            <Badge tone="success" dot>Live preview</Badge>
+            {/* "Live preview" over a fabricated page was the claim that made
+                this screen dishonest: nothing is served, so nothing is live. */}
+            {live ? (
+              <Badge tone="neutral">Not rendered</Badge>
+            ) : (
+              <Badge tone="success" dot>Live preview</Badge>
+            )}
           </h2>
-          <div className="relative min-h-0 flex-1 overflow-hidden rounded-[10px] border border-border bg-bg-surface shadow-md">
-            <ScaledSite scale={2} height={560}>
-              <MiniSite brand={project.brand} headline={project.headline} dark={project.theme === "dark"} />
-            </ScaledSite>
-            {!fixed &&
+          <div className="relative grid min-h-0 flex-1 place-items-center overflow-hidden rounded-[10px] border border-border bg-bg-surface shadow-md">
+            {live ? (
+              <p className="max-w-[34ch] px-6 text-center text-body-sm text-content-muted">
+                The generated site isn&apos;t rendered here. Showing it needs the project built and served,
+                which this deployment has no sandbox for — so there is nothing to put beside your design yet.
+              </p>
+            ) : (
+              <ScaledSite scale={2} height={560}>
+                <MiniSite brand={project.brand} headline={project.headline} dark={project.theme === "dark"} />
+              </ScaledSite>
+            )}
+            {!fixed && !live &&
               OVERLAYS.map((overlay) => (
                 <div
                   key={overlay.id}

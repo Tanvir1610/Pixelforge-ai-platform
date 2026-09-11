@@ -4,6 +4,7 @@ import { getProject, PROJECTS } from "@/lib/data";
 import { getSession } from "@/lib/auth/session";
 import { listProjects } from "@/lib/repositories/projects";
 import { getComparisons } from "@/lib/repositories/visual";
+import { loadFramePreview } from "@/lib/repositories/design-read";
 
 /**
  * Dynamic, because the score belongs to a project. Prerendered from the sample
@@ -25,12 +26,15 @@ export default async function ComparePage({ params }: { params: Promise<{ id: st
   const owned = session && !session.demo ? await listProjects(session, 20) : [];
   const real = isSampleId ? null : owned.find((project) => project.id === id || project.slug === id);
 
-  const comparisons = real ? await getComparisons(real.id) : [];
+  const [comparisons, frame] = real
+    ? await Promise.all([getComparisons(real.id), loadFramePreview(session!, real.id)])
+    : [[], null];
 
   return (
     <CompareWorkspace
       project={real ? { ...getProject(id), id: real.id, name: real.name } : getProject(id)}
       comparisons={comparisons}
+      frame={frame}
       live={Boolean(real)}
     />
   );

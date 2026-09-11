@@ -137,22 +137,50 @@ type PreviewNodeRow = Pick<
 const PREVIEW_MAX_DEPTH = 4;
 const PREVIEW_MAX_NODES = 400;
 
-export async function loadFramePreview(session: Session, projectId: string): Promise<FramePreview | null> {
-  if (session.demo) return null;
+/**
+ * Several frames, widest first.
+ *
+ * The responsive screen needs one per breakpoint, and the compare screen needs
+ * whichever the generated page corresponds to — a single widest frame cannot
+ * serve either.
+ */
+export async function loadFramePreviews(
+  session: Session,
+  projectId: string,
+  limit = 4,
+): Promise<FramePreview[]> {
+  if (session.demo) return [];
 
   const supabase = await createClient();
-  if (!supabase) return null;
+  if (!supabase) return [];
 
-  // The widest frame, which is the one a desktop layout lives in.
   const { data: frames } = await supabase
     .from("figma_frames")
     .select("id, name, width, height")
     .eq("project_id", projectId)
     .order("width", { ascending: false })
+    .limit(limit)
     .overrideTypes<Pick<FigmaFrameRow, "id" | "name" | "width" | "height">[]>();
 
-  const frame = frames?.[0];
-  if (!frame) return null;
+  if (!frames?.length) return [];
+
+  const previews = await Promise.all(
+    frames.map((frame) => loadOneFrame(supabase, frame, frames.length)),
+  );
+  return previews.filter((preview): preview is FramePreview => preview !== null);
+}
+
+export async function loadFramePreview(session: Session, projectId: string): Promise<FramePreview | null> {
+  // The widest frame, which is the one a desktop layout lives in.
+  const [widest] = await loadFramePreviews(session, projectId, 1);
+  return widest ?? null;
+}
+
+async function loadOneFrame(
+  supabase: NonNullable<Awaited<ReturnType<typeof createClient>>>,
+  frame: Pick<FigmaFrameRow, "id" | "name" | "width" | "height">,
+  frameCount: number,
+): Promise<FramePreview | null> {
 
   // The column list is concatenated for readability, which defeats supabase-js's
   // static parsing of it, so the row shape is stated instead.
@@ -210,7 +238,7 @@ export async function loadFramePreview(session: Session, projectId: string): Pro
         width: node.width,
         height: node.height,
       })),
-    frameCount: frames?.length ?? 1,
+    frameCount,
   };
 }
 

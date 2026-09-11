@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { MiniSite, ScaledSite } from "@/components/preview/mini-site";
+import { DesignPreview } from "@/components/preview/design-preview";
+import type { FramePreview } from "@/lib/repositories/design-read";
 import { DEVICES, RESPONSIVE_RULES } from "@/lib/data";
 import type { DeviceKey, Project } from "@/types";
 
@@ -19,14 +21,25 @@ const FRAME: Record<DeviceKey, { box: number; scale: number; note: string; deriv
   mobile: { box: 230, scale: 0.72, note: "1 column · padding 20", derived: true },
 };
 
+/** The imported frame whose width is closest to a breakpoint. */
+function nearestPreview(previews: FramePreview[], width: number): FramePreview | null {
+  if (previews.length === 0) return null;
+  return previews.reduce((best, candidate) =>
+    Math.abs(candidate.width - width) < Math.abs(best.width - width) ? candidate : best,
+  );
+}
+
 export function ResponsiveWorkspace({
   project,
   frames = [],
+  previews = [],
   live = false,
 }: {
   project: Project;
   /** The project's own frames, which is where real breakpoints come from. */
   frames?: { id: string; name: string; width: number; height: number; breakpoint: number | null }[];
+  /** Drawable frames, widest first — one per breakpoint the design actually has. */
+  previews?: FramePreview[];
   live?: boolean;
 }) {
   const [mode, setMode] = React.useState<"single" | "all">("all");
@@ -84,19 +97,61 @@ export function ResponsiveWorkspace({
                     </span>
                     <span className="font-mono font-normal text-content-muted">{device.width}px</span>
                   </div>
-                  <ScaledSite scale={mode === "all" ? frame.scale : frame.scale * 1.4} height={340}>
-                    <MiniSite
-                      brand={project.brand}
-                      headline={project.headline}
-                      device={device.key}
-                      dark={project.theme === "dark"}
-                    />
-                  </ScaledSite>
+                  {/* The real frame closest to this breakpoint's width, drawn
+                      from its own nodes. A fabricated page rendered at three
+                      sizes told you nothing about your design. */}
+                  {live ? (
+                    (() => {
+                      const match = nearestPreview(previews, device.width);
+                      return match ? (
+                        <div className="grid place-items-center bg-bg-subtle p-3">
+                          <DesignPreview
+                            frame={match}
+                            maxWidth={(mode === "all" ? frame.box : 680) - 24}
+                            maxHeight={340}
+                          />
+                        </div>
+                      ) : (
+                        <div className="grid h-[340px] place-items-center px-4 text-center text-caption text-content-muted">
+                          No imported frame near {device.width}px.
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <ScaledSite scale={mode === "all" ? frame.scale : frame.scale * 1.4} height={340}>
+                      <MiniSite
+                        brand={project.brand}
+                        headline={project.headline}
+                        device={device.key}
+                        dark={project.theme === "dark"}
+                      />
+                    </ScaledSite>
+                  )}
                   <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2.5">
-                    <span className="truncate text-caption text-content-muted">{frame.note}</span>
-                    <Badge tone={frame.derived ? "accent" : "success"} dot={!frame.derived}>
-                      {frame.derived ? "Derived" : "Matches frame"}
-                    </Badge>
+                    {live ? (
+                      (() => {
+                        const match = nearestPreview(previews, device.width);
+                        return (
+                          <>
+                            <span className="truncate text-caption text-content-muted">
+                              {match ? `${match.name} · ${match.width}×${match.height}` : "no frame"}
+                            </span>
+                            {/* "Matches frame" only when the design really has
+                                one at this width; anything else is scaled. */}
+                            <Badge tone={match?.width === device.width ? "success" : "accent"} dot={match?.width === device.width}>
+                              {match?.width === device.width ? "Matches frame" : "Scaled"}
+                            </Badge>
+                          </>
+                        );
+                      })()
+                    ) : (
+                      <>
+                        <span className="truncate text-caption text-content-muted">{frame.note}</span>
+                        <Badge tone={frame.derived ? "accent" : "success"} dot={!frame.derived}>
+                          {frame.derived ? "Derived" : "Matches frame"}
+                        </Badge>
+                      </>
+                    )}
                   </div>
                 </li>
               );
