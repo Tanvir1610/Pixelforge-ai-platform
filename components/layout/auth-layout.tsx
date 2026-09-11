@@ -23,7 +23,10 @@ export function AuthLayout({ children }: { children: React.ReactNode }) {
         <div className="relative -mr-32 min-h-0 flex-1 overflow-hidden rounded-lg border border-[#2E2E2E] bg-bg-dark-2 shadow-lg">
           <div className="flex h-11 items-center justify-between border-b border-[#2E2E2E] px-4">
             <span className="text-caption text-content-on-dark">Home / page.tsx</span>
-            <Badge tone="success" dot>97% match</Badge>
+            {/* Was a green "97% match" badge. Nothing measured it — it is a
+                number beside a mockup, and the same number the app used to
+                report for real projects it had never compared. */}
+            <Badge tone="neutral">Example output</Badge>
           </div>
           <div className="p-5">
             <ScaledSite scale={1.4} height={340} className="rounded-md">
@@ -32,14 +35,16 @@ export function AuthLayout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        <blockquote className="relative shrink-0">
-          <p className="max-w-[22ch] font-display text-[24px] font-bold leading-[1.25] tracking-[-0.02em] xl:text-[28px]">
-            Six screens, one afternoon, no hand-off meeting.
-          </p>
-          <footer className="mt-3 text-body-sm text-content-on-dark">
-            Priya Raman · Design lead, Basalt Studio
-          </footer>
-        </blockquote>
+        {/* A testimonial used to sit here — "Six screens, one afternoon, no
+            hand-off meeting." attributed to "Priya Raman · Design lead, Basalt
+            Studio". Neither the person nor the studio exists. A fabricated
+            quote from a named person is not placeholder copy; it is a claim
+            about a customer, put in front of someone deciding whether to sign
+            up. This says what the product does instead. */}
+        <p className="relative max-w-[26ch] shrink-0 font-display text-[24px] font-bold leading-[1.25] tracking-[-0.02em] xl:text-[28px]">
+          Your Figma file, read properly — layout, tokens and components, not a
+          screenshot traced into divs.
+        </p>
       </div>
 
       <div className="flex items-center justify-center bg-bg px-5 py-10 sm:py-12 md:px-12">

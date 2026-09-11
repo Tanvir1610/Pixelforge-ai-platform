@@ -2,11 +2,20 @@
 
 import { cn } from "@/lib/utils";
 
-export function Toggle({ checked, onChange, label, description, id }: {
+export function Toggle({ checked, onChange, label, description, id, name }: {
   checked: boolean; onChange: (next: boolean) => void; label: string; description?: string; id: string;
+  /**
+   * Makes the toggle submit with a form.
+   *
+   * The switch is a <button>, so it carries no value of its own. Given a name
+   * it emits the same "on"-when-checked pair a native checkbox would, which is
+   * what server actions read.
+   */
+  name?: string;
 }) {
   return (
     <div className="flex items-center justify-between gap-6 border-t border-border py-3 first:border-t-0">
+      {name && checked && <input type="hidden" name={name} value="on" />}
       <span className="flex flex-col">
         <label htmlFor={id} className="text-body font-medium">{label}</label>
         {description && <span className="text-caption text-content-muted">{description}</span>}

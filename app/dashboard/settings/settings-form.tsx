@@ -1,53 +1,88 @@
 "use client";
 
 import * as React from "react";
+import { useActionState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Github, LayoutGrid } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonClasses } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { OptionGroup } from "@/components/ui/option-group";
-import { Segmented } from "@/components/ui/segmented";
 import { Toggle } from "@/components/ui/toggle";
 import { Banner } from "@/components/ui/banner";
+import {
+  deleteProjectAction, updateProjectSettingsAction, type ProjectMutationState,
+} from "@/lib/actions/projects";
 import { cn } from "@/lib/utils";
-import type { Framework, Styling } from "@/types";
+import type { FrameworkKey, ProjectRow, StylingKey } from "@/lib/db/database.types";
 
-const SECTIONS = [
-  "General", "Framework", "Styling", "Repository", "Environment variables",
-  "Domains", "Deployment", "AI settings",
+/**
+ * Project settings.
+ *
+ * Every control here was local state over a fixture. The name read "Northwind
+ * marketing", the Figma source read "figma.com/design/8kQ2/Northwind", a
+ * repository called "basalt-studio/northwind-marketing" was reported as
+ * connected and pushing to main, "Save changes" showed a success banner without
+ * writing anything, and the delete dialog asked the user to type the fixture's
+ * name — which no real project has, so the confirm button could never enable.
+ *
+ * It now reads and writes the signed-in user's project. The sections with
+ * nothing behind them are gone rather than disabled: a setting that is stored
+ * nowhere and read by nothing is not a setting.
+ */
+const SECTIONS = ["General", "Framework", "Styling", "Repository", "Danger zone"];
+
+const FRAMEWORKS: { value: FrameworkKey; label: string; swatch: string }[] = [
+  { value: "nextjs", label: "Next.js", swatch: "#111111" },
+  { value: "react", label: "React", swatch: "#61DAFB" },
+  { value: "vue", label: "Vue", swatch: "#42B883" },
+  { value: "html", label: "HTML/CSS", swatch: "#E44D26" },
 ];
 
-const FRAMEWORKS = [
-  { value: "Next.js" as Framework, label: "Next.js", swatch: "#111111" },
-  { value: "React" as Framework, label: "React", swatch: "#61DAFB" },
-  { value: "Vue" as Framework, label: "Vue", swatch: "#42B883" },
-  { value: "HTML/CSS" as Framework, label: "HTML/CSS", swatch: "#E44D26" },
+const STYLING: { value: StylingKey; label: string; swatch: string }[] = [
+  { value: "tailwind", label: "Tailwind CSS", swatch: "#38BDF8" },
+  { value: "css_modules", label: "CSS Modules", swatch: "#8B5CF6" },
+  { value: "vanilla_css", label: "Vanilla CSS", swatch: "#6B7280" },
 ];
 
-const STYLING = [
-  { value: "Tailwind CSS" as Styling, label: "Tailwind CSS", swatch: "#38BDF8" },
-  { value: "CSS Modules" as Styling, label: "CSS Modules", swatch: "#8B5CF6" },
-  { value: "Vanilla CSS" as Styling, label: "Vanilla CSS", swatch: "#6B7280" },
-];
+const INITIAL: ProjectMutationState = {};
 
-export function SettingsForm() {
+export function SettingsForm({
+  project,
+  figmaSource,
+}: {
+  project: ProjectRow;
+  /** Where the design came from, or null if nothing has been imported. */
+  figmaSource: string | null;
+}) {
+  const router = useRouter();
   const [active, setActive] = React.useState("General");
-  const [framework, setFramework] = React.useState<Framework>("Next.js");
-  const [styling, setStyling] = React.useState<Styling>("Tailwind CSS");
-  const [typescript, setTypescript] = React.useState(true);
-  const [fidelity, setFidelity] = React.useState<"loose" | "balanced" | "strict">("balanced");
-  const [autoSuggest, setAutoSuggest] = React.useState(true);
-  const [reuse, setReuse] = React.useState(true);
-  const [saved, setSaved] = React.useState(false);
+
+  // Controlled so the hidden inputs the action reads stay in step with the
+  // OptionGroup, which is a button group rather than a native radio set.
+  const [framework, setFramework] = React.useState<FrameworkKey>(project.framework);
+  const [styling, setStyling] = React.useState<StylingKey>(project.styling);
+  const [typescript, setTypescript] = React.useState(project.typescript);
+  const [responsive, setResponsive] = React.useState(project.responsive);
+
   const [confirmDelete, setConfirmDelete] = React.useState(false);
   const [deleteText, setDeleteText] = React.useState("");
+
+  const [saveState, saveAction, saving] = useActionState(updateProjectSettingsAction, INITIAL);
+  const [deleteState, deleteFormAction, deleting] = useActionState(deleteProjectAction, INITIAL);
+
+  // A deleted project has no settings, so the screen has to leave.
+  React.useEffect(() => {
+    if (deleteState.ok) router.push("/dashboard/projects");
+  }, [deleteState.ok, router]);
 
   return (
     <div className="grid gap-8 lg:grid-cols-[220px_1fr]">
       <nav aria-label="Settings sections" className="hidden lg:block">
         <ul className="sticky top-20 flex flex-col gap-0.5">
-          {SECTIONS.map((section) => (
+          {SECTIONS.filter((section) => section !== "Danger zone").map((section) => (
             <li key={section}>
               <button
                 type="button"
@@ -77,121 +112,119 @@ export function SettingsForm() {
       </nav>
 
       <div className="flex max-w-[640px] flex-col gap-5">
-        {saved && <Banner tone="success">Settings saved. They apply from the next generation.</Banner>}
+        {saveState.message && (
+          <Banner tone={saveState.ok ? "success" : "error"}>{saveState.message}</Banner>
+        )}
+        {deleteState.message && !deleteState.ok && <Banner tone="error">{deleteState.message}</Banner>}
 
-        <Card>
-          <CardHeader title="General" description="Name and description shown across the workspace." />
-          <CardBody>
-            <Field label="Project name" htmlFor="setting-name">
-              <Input id="setting-name" defaultValue="Northwind marketing" />
-            </Field>
-            <Field label="Description" htmlFor="setting-desc">
-              <textarea
-                id="setting-desc"
-                rows={3}
-                defaultValue="Marketing site generated from the Northwind Figma file."
-                className="w-full resize-y rounded-md border border-border bg-bg-surface px-3 py-2.5 text-base shadow-sm outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(99,102,241,.2)] sm:text-body"
-              />
-            </Field>
-            <Field
-              label="Figma source"
-              htmlFor="setting-figma"
-              help="Re-import pulls the latest version of this file."
-            >
-              <Input
-                id="setting-figma"
-                icon={<LayoutGrid />}
-                defaultValue="figma.com/design/8kQ2/Northwind"
-                className="font-mono text-caption"
-                trailing={<Button variant="ghost" size="xs">Change</Button>}
-              />
-            </Field>
-          </CardBody>
-          <CardFooter>
-            <Button variant="ghost">Discard</Button>
-            <Button variant="primary" onClick={() => setSaved(true)}>Save changes</Button>
-          </CardFooter>
-        </Card>
+        <form action={saveAction} className="flex flex-col gap-5">
+          <input type="hidden" name="projectId" value={project.id} />
+          <input type="hidden" name="framework" value={framework} />
+          <input type="hidden" name="styling" value={styling} />
 
-        <Card>
-          <CardHeader
-            title="Framework and styling"
-            description="Changing either regenerates every page from the last analysis."
-          />
-          <CardBody>
-            <div className="flex flex-col gap-1.5">
-              <span className="text-body-sm font-medium">Framework</span>
-              <OptionGroup label="Framework" options={FRAMEWORKS} value={framework} onChange={setFramework} columns={2} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <span className="text-body-sm font-medium">Styling</span>
-              <OptionGroup label="Styling" options={STYLING} value={styling} onChange={setStyling} columns={3} />
-            </div>
-            <Toggle
-              id="setting-ts"
-              checked={typescript}
-              onChange={setTypescript}
-              label="TypeScript"
-              description="Typed props on generated components."
+          <Card>
+            <CardHeader title="General" description="Name and description shown across the workspace." />
+            <CardBody>
+              <Field label="Project name" htmlFor="setting-name" error={saveState.errors?.name}>
+                <Input id="setting-name" name="name" defaultValue={project.name} required maxLength={120} />
+              </Field>
+              <Field label="Description" htmlFor="setting-desc" error={saveState.errors?.description}>
+                <textarea
+                  id="setting-desc"
+                  name="description"
+                  rows={3}
+                  maxLength={500}
+                  defaultValue={project.description ?? ""}
+                  placeholder="What this project is. Shown on the project card."
+                  className="w-full resize-y rounded-md border border-border bg-bg-surface px-3 py-2.5 text-base shadow-sm outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(99,102,241,.2)] sm:text-body"
+                />
+              </Field>
+              <Field
+                label="Design source"
+                htmlFor="setting-figma"
+                help={
+                  figmaSource
+                    ? "Re-importing pulls the latest version of this file."
+                    : "Nothing has been imported into this project yet."
+                }
+              >
+                <Input
+                  id="setting-figma"
+                  icon={<LayoutGrid />}
+                  readOnly
+                  value={figmaSource ?? "No design imported"}
+                  className="font-mono text-caption"
+                  trailing={
+                    <Link href="/dashboard/import" className={buttonClasses("ghost", "xs")}>
+                      {figmaSource ? "Re-import" : "Import"}
+                    </Link>
+                  }
+                />
+              </Field>
+            </CardBody>
+            <CardFooter>
+              {/* "Discard" used to sit here and do nothing. A reload is the
+                  discard, and the browser already has a button for it. */}
+              <Button type="submit" variant="primary" loading={saving}>Save changes</Button>
+            </CardFooter>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Framework and styling"
+              description="These are what the generator targets. Changing either affects the next generation."
             />
-          </CardBody>
-        </Card>
+            <CardBody>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-body-sm font-medium">Framework</span>
+                <OptionGroup label="Framework" options={FRAMEWORKS} value={framework} onChange={setFramework} columns={2} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-body-sm font-medium">Styling</span>
+                <OptionGroup label="Styling" options={STYLING} value={styling} onChange={setStyling} columns={3} />
+              </div>
+              <Toggle
+                id="setting-ts"
+                name="typescript"
+                checked={typescript}
+                onChange={setTypescript}
+                label="TypeScript"
+                description="Typed props on generated components."
+              />
+              <Toggle
+                id="setting-responsive"
+                name="responsive"
+                checked={responsive}
+                onChange={setResponsive}
+                label="Responsive output"
+                description="Generate breakpoint rules from the frames you imported."
+              />
+            </CardBody>
+            <CardFooter>
+              <Button type="submit" variant="primary" loading={saving}>Save changes</Button>
+            </CardFooter>
+          </Card>
+        </form>
 
         <Card>
           <CardHeader title="Repository" />
           <CardBody>
             <div className="flex flex-wrap items-center gap-3">
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-bg-dark text-white">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-bg-subtle text-content-muted">
                 <Github aria-hidden className="h-3.5 w-3.5" />
               </span>
               <div className="min-w-[200px] flex-1">
-                <b className="block text-body">basalt-studio/northwind-marketing</b>
+                {/* Reported "basalt-studio/northwind-marketing · Connected ·
+                    pushes to main on every approved generation" for every
+                    account. There is no GitHub integration anywhere in this
+                    codebase, so nothing was ever pushed anywhere. */}
+                <b className="block text-body">Not connected</b>
                 <span className="text-caption text-content-muted">
-                  Connected · pushes to main on every approved generation
+                  Pushing generated code to GitHub isn&apos;t built yet. Until it is, export from the
+                  Code screen.
                 </span>
               </div>
-              <Button variant="secondary" size="sm">Disconnect</Button>
             </div>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHeader
-            title="AI settings"
-            description="How much freedom the assistant has when it can't match the design exactly."
-          />
-          <CardBody>
-            <Field
-              label="Fidelity"
-              htmlFor="fidelity"
-              help="Strict keeps exact values from Figma even where they break at other widths."
-            >
-              <Segmented
-                label="Fidelity"
-                value={fidelity}
-                onChange={setFidelity}
-                className="w-fit"
-                options={[
-                  { value: "loose", label: "Loose" },
-                  { value: "balanced", label: "Balanced" },
-                  { value: "strict", label: "Strict pixel match" },
-                ]}
-              />
-            </Field>
-            <Toggle
-              id="auto-suggest"
-              checked={autoSuggest}
-              onChange={setAutoSuggest}
-              label="Suggest refinements automatically"
-              description="Flag differences above 3% without being asked."
-            />
-            <Toggle
-              id="reuse"
-              checked={reuse}
-              onChange={setReuse}
-              label="Reuse workspace components"
-              description="Import from your library instead of generating new files."
-            />
           </CardBody>
         </Card>
 
@@ -199,24 +232,14 @@ export function SettingsForm() {
           <CardHeader
             className="border-[#FECACA]"
             title={<span className="text-error-text">Danger zone</span>}
-            description="These actions cannot be undone."
+            description="This action cannot be undone."
           />
           <CardBody>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <b className="block text-body">Reset generated code</b>
-                <span className="text-caption text-content-muted">
-                  Deletes all files and regenerates from the last analysis.
-                </span>
-              </div>
-              <Button variant="outlineDanger" size="sm">Reset code</Button>
-            </div>
-            <div className="h-px bg-border" />
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
                 <b className="block text-body">Delete project</b>
                 <span className="text-caption text-content-muted">
-                  Removes the project, its assets and every deployment.
+                  Removes {project.name} from the workspace, with its design, versions and generated files.
                 </span>
               </div>
               <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)}>Delete project</Button>
@@ -228,27 +251,38 @@ export function SettingsForm() {
       <Modal
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
-        title="Delete Northwind marketing?"
-        description="This removes the project, its assets and every deployment. It cannot be undone."
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setConfirmDelete(false)}>Cancel</Button>
-            <Button variant="danger" disabled={deleteText !== "Northwind marketing"}>
+        title={`Delete ${project.name}?`}
+        description="This removes the project, its design and every generated version. It cannot be undone."
+      >
+        <form action={deleteFormAction}>
+          <input type="hidden" name="projectId" value={project.id} />
+          {/* The expected text is the project's own name. It used to be the
+              fixture's, so the confirm button could never enable. */}
+          <input type="hidden" name="expected" value={project.name} />
+          <div className="p-6">
+            <Field label="Type the project name to confirm" htmlFor="confirm-delete">
+              <Input
+                id="confirm-delete"
+                name="confirm"
+                value={deleteText}
+                onChange={(event) => setDeleteText(event.target.value)}
+                placeholder={project.name}
+                autoComplete="off"
+              />
+            </Field>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-border px-6 py-4">
+            <Button type="button" variant="ghost" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+            <Button
+              type="submit"
+              variant="danger"
+              loading={deleting}
+              disabled={deleteText.trim() !== project.name}
+            >
               Delete permanently
             </Button>
-          </>
-        }
-      >
-        <div className="p-6">
-          <Field label="Type the project name to confirm" htmlFor="confirm-delete">
-            <Input
-              id="confirm-delete"
-              value={deleteText}
-              onChange={(event) => setDeleteText(event.target.value)}
-              placeholder="Northwind marketing"
-            />
-          </Field>
-        </div>
+          </div>
+        </form>
       </Modal>
     </div>
   );

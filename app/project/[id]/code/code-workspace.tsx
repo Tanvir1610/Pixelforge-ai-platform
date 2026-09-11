@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, Check, GitBranch, Info, Layers, Zap } from "lucide-react";
+import { AlertTriangle, Check, Download, GitBranch, Info, Layers, Zap } from "lucide-react";
 import { WorkspaceShell } from "@/components/layout/workspace-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { EditorTabs } from "@/components/sections/editor-tabs";
 import { CODE_FILES } from "@/lib/data";
 import type { LatestCodeVersion, VersionSummary } from "@/lib/repositories/code";
 import { VersionHistory } from "@/components/code/version-history";
+import { askAssistantAction } from "@/lib/actions/assistant";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
 
@@ -39,10 +40,20 @@ const TREE = [
   { name: "package.json", type: "ts" as const },
 ];
 
+/**
+ * What each action actually asks.
+ *
+ * These five buttons had no `onClick`. They rendered, they hovered, and nothing
+ * happened — decoration shaped like a feature. Each now sends the open file to
+ * the refinement assistant, which is advisory: it says what it would change and
+ * where, and applying it stays a separate, explicit step.
+ */
 const AI_ACTIONS = [
-  { label: "Explain", icon: Info }, { label: "Refactor", icon: Layers },
-  { label: "Optimise", icon: Zap }, { label: "Fix", icon: AlertTriangle },
-  { label: "Generate tests", icon: Check },
+  { label: "Explain", icon: Info, prompt: "Explain what this file does, section by section. Be brief." },
+  { label: "Refactor", icon: Layers, prompt: "Suggest refactors for this file. Name the exact lines and say why each one is worth doing." },
+  { label: "Optimise", icon: Zap, prompt: "Find performance problems in this file — re-renders, bundle weight, unnecessary work. Skip anything that is already fine." },
+  { label: "Fix", icon: AlertTriangle, prompt: "Find bugs, accessibility problems and type errors in this file. If there are none, say so." },
+  { label: "Generate tests", icon: Check, prompt: "Write the tests this file needs. Give the test file's path and its full contents." },
 ];
 
 const OPEN_FILES = ["page.tsx", "Hero.tsx", "globals.css"];
@@ -93,14 +104,51 @@ export function CodeWorkspace({
     };
   }, [live, version, activeFile]);
 
+  // Which action is in flight, and what came back. One at a time: each is a
+  // metered model call, and five parallel ones would just burn credits.
+  const [asking, setAsking] = React.useState<string | null>(null);
+  const [reply, setReply] = React.useState<
+    { title: string; body: string; status?: string; ok: boolean } | null
+  >(null);
+
+  async function ask(label: string, prompt: string) {
+    const content = version?.files.find((entry) => entry.path === activeFile)?.content;
+    if (!content) {
+      setReply({
+        title: label,
+        ok: false,
+        body: "That file's contents are in object storage rather than inline, so it can't be sent for review from here.",
+      });
+      return;
+    }
+
+    setAsking(label);
+    setReply(null);
+    try {
+      const result = await askAssistantAction({ prompt, file: { path: activeFile, content } });
+      setReply({ title: `${label} · ${activeFile}`, body: result.message, status: result.status, ok: result.ok });
+    } catch {
+      setReply({ title: label, ok: false, body: "The request didn't get through. Try again in a moment." });
+    } finally {
+      setAsking(null);
+    }
+  }
+
   return (
     <WorkspaceShell
       project={project}
       status={
-        <Badge className="hidden sm:inline-flex">
-          <GitBranch aria-hidden className="h-3 w-3" />
-          main
-        </Badge>
+        // Was a "main" branch badge. Nothing here is in a repository — there is
+        // no GitHub integration on this deployment — so it named a branch that
+        // does not exist. The version number is the real identifier.
+        live ? (
+          <Badge className="hidden sm:inline-flex">
+            <GitBranch aria-hidden className="h-3 w-3" />
+            v{version!.versionNumber}
+          </Badge>
+        ) : (
+          <Badge tone="neutral" className="hidden sm:inline-flex">Sample project</Badge>
+        )
       }
     >
       <div className="grid h-full min-h-0 bg-bg-dark lg:grid-cols-[240px_1fr_260px]">
@@ -177,6 +225,18 @@ export function CodeWorkspace({
         </main>
 
         <aside aria-label="AI actions" className="hidden min-h-0 flex-col gap-2 overflow-y-auto border-l border-border-dark p-4 scrollbar-thin lg:flex">
+          {/* The one thing a user most wants from this screen, and the one
+              thing it could not do: get the code out. */}
+          {live && (
+            <a
+              href={`/api/projects/${project.id}/download`}
+              className="mb-1 flex items-center gap-2 rounded-md border border-[#2E2E2E] bg-[#1F1F1F] px-3 py-2 text-body-sm font-medium text-[#E5E7EB] transition-colors hover:bg-[#262626]"
+            >
+              <Download aria-hidden className="h-4 w-4 text-[#9CA3AF]" />
+              Download source
+            </a>
+          )}
+
           <h2 className="mb-1 text-[11px] font-semibold text-[#6B7280]">AI actions</h2>
           {AI_ACTIONS.map((action) => {
             const Icon = action.icon;
@@ -184,6 +244,10 @@ export function CodeWorkspace({
               <Button
                 key={action.label}
                 size="sm"
+                onClick={() => ask(action.label, action.prompt)}
+                loading={asking === action.label}
+                // Nothing to reason about without a real file in the editor.
+                disabled={!live || asking !== null}
                 className="justify-start border border-[#2E2E2E] bg-[#1F1F1F] text-[#E5E7EB] hover:bg-[#262626] [&_svg]:text-[#9CA3AF]"
               >
                 <Icon />
@@ -191,6 +255,36 @@ export function CodeWorkspace({
               </Button>
             );
           })}
+
+          {!live && (
+            <p className="text-caption leading-relaxed text-[#6B7280]">
+              These act on generated code. Import a design and generate to use them.
+            </p>
+          )}
+
+          {reply && (
+            <div className="mt-2 rounded-[10px] border border-[#2E2E2E] bg-[#1A1A1A] p-3">
+              <h3 className="mb-1.5 flex items-center justify-between gap-2 text-[11px] font-semibold text-[#6B7280]">
+                {reply.title}
+                <button
+                  type="button"
+                  onClick={() => setReply(null)}
+                  className="font-normal text-[#6B7280] hover:text-[#E5E7EB]"
+                >
+                  Dismiss
+                </button>
+              </h3>
+              <p className={cn(
+                "whitespace-pre-wrap text-caption leading-relaxed",
+                reply.ok ? "text-[#D1D5DB]" : "text-[#FCA5A5]",
+              )}>
+                {reply.body}
+              </p>
+              {reply.status && (
+                <p className="mt-2 font-mono text-[10px] text-[#6B7280]">{reply.status}</p>
+              )}
+            </div>
+          )}
 
           {/* The history was written from the first generation and reachable
               from nowhere, which made every generation final. */}
@@ -201,13 +295,20 @@ export function CodeWorkspace({
             </div>
           )}
 
-          <div className="mt-3">
-            <h2 className="mb-1 text-[11px] font-semibold text-[#6B7280]">Selection</h2>
-            <p className="text-caption leading-relaxed text-[#9CA3AF]">
-              Lines 21–27 render the feature grid mapped from{" "}
-              <code className="font-mono text-[#E5E7EB]">features</code>.
-            </p>
-          </div>
+          {/* A "Selection" panel used to sit here reading "Lines 21–27 render
+              the feature grid mapped from features" — fixed text about a file
+              the open project need not contain. The open file's own facts
+              replace it. */}
+          {live && (
+            <div className="mt-3">
+              <h2 className="mb-1 text-[11px] font-semibold text-[#6B7280]">Open file</h2>
+              <p className="text-caption leading-relaxed text-[#9CA3AF]">
+                <code className="font-mono text-[#E5E7EB]">{activeFile}</code>
+                <br />
+                {source.lines.length} lines · {source.language}
+              </p>
+            </div>
+          )}
 
           <div className="mt-auto rounded-[10px] border border-[#2E2E2E] p-3 text-caption">
             <p className={cn(

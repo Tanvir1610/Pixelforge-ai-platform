@@ -1,4 +1,5 @@
 import type { FrameworkKey, ProjectRow, ProjectStatus, StylingKey } from "@/lib/db/database.types";
+import type { Project } from "@/types";
 
 /**
  * Presenters turn database rows into what the UI renders.
@@ -78,8 +79,10 @@ export function toProjectCard(project: ProjectRow, now = Date.now()): ProjectCar
     slug: project.slug,
     name: project.name,
     brand: project.name.split(" ")[0],
-    // Until a real thumbnail exists, the description stands in for page copy.
-    headline: project.description ?? "Ship your ideas without the rebuild.",
+    // The description the user wrote, or nothing. It used to fall back to the
+    // sample project's tagline, so every project without a description
+    // advertised "Ship your ideas without the rebuild." as if it were its own.
+    headline: project.description ?? "",
     frameworkLabel: FRAMEWORK_LABEL[project.framework],
     frameworkColour: FRAMEWORK_COLOUR[project.framework],
     stylingLabel: STYLING_LABEL[project.styling],
@@ -87,5 +90,66 @@ export function toProjectCard(project: ProjectRow, now = Date.now()): ProjectCar
     status: STATUS_PRESENTATION[project.status],
     meta,
     dark: false,
+  };
+}
+
+const FRAMEWORK_VIEW: Record<FrameworkKey, Project["framework"]> = {
+  nextjs: "Next.js", react: "React", vue: "Vue", html: "HTML/CSS",
+};
+
+const STYLING_VIEW: Record<StylingKey, Project["styling"]> = {
+  tailwind: "Tailwind CSS", css_modules: "CSS Modules", vanilla_css: "Vanilla CSS",
+};
+
+/** Counts the workspace header reports, from the project's own data. */
+export interface WorkspaceCounts {
+  /** Frames imported, which is what "pages" means before anything is generated. */
+  pages: number;
+  components: number;
+  generatedFiles: number;
+}
+
+/**
+ * A real project, as the workspace screens want it.
+ *
+ * Preview, Code, Design and Responsive each built their view model as
+ * `{ ...getProject(id), id: real.id, name: real.name }` — the sample project
+ * with two fields swapped. So a user's own project was reported as Next.js with
+ * Tailwind, six pages, fourteen components and a 97% match, taken wholesale
+ * from a fixture called "Northwind marketing", regardless of what they had
+ * actually imported or chosen.
+ */
+export function toWorkspaceProject(
+  project: ProjectRow,
+  counts: Partial<WorkspaceCounts> = {},
+  now = Date.now(),
+): Project {
+  const pages = counts.pages ?? 0;
+  const components = counts.components ?? 0;
+  const generatedFiles = counts.generatedFiles ?? 0;
+
+  const meta =
+    project.status === "failed"
+      ? "Last build failed"
+      : generatedFiles > 0
+        ? `${generatedFiles} ${generatedFiles === 1 ? "file" : "files"} generated`
+        : pages > 0
+          ? `${pages} ${pages === 1 ? "frame" : "frames"} imported · not generated`
+          : "No design imported yet";
+
+  return {
+    id: project.id,
+    name: project.name,
+    framework: FRAMEWORK_VIEW[project.framework],
+    styling: STYLING_VIEW[project.styling],
+    status: project.status === "analysing" || project.status === "importing" ? "generating" : project.status,
+    editedAt: relativeTime(project.updated_at, now),
+    meta,
+    pages,
+    components,
+    // Only present once something measured it. The fixture supplied 97.
+    matchScore: project.match_score === null ? undefined : Math.round(project.match_score),
+    brand: project.name.split(" ")[0],
+    headline: project.description ?? "",
   };
 }

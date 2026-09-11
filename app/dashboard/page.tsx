@@ -46,7 +46,9 @@ export default async function DashboardPage() {
     <AppShell crumbs={["Dashboard"]}>
       {session.demo && <DemoBanner />}
       <PageHeading
-        title={`Good morning, ${firstName}.`}
+        // Was "Good morning" at every hour. Rendered on the server, so the
+        // time of day is not reliably the reader's anyway.
+        title={`Welcome back, ${firstName}.`}
         description="Turn your next design into a real product."
         actions={
           <>

@@ -166,6 +166,56 @@ export async function renameProject(projectId: string, name: string): Promise<Pr
   return data;
 }
 
+export interface ProjectSettingsInput {
+  name: string;
+  description: string | null;
+  framework: ProjectRow["framework"];
+  styling: ProjectRow["styling"];
+  typescript: boolean;
+  responsive: boolean;
+}
+
+/**
+ * Saves the settings screen.
+ *
+ * That screen was entirely local state: framework, styling, TypeScript, name
+ * and description all lived in `useState`, and "Save changes" set a banner
+ * reading "Settings saved. They apply from the next generation." Nothing was
+ * written, so the next generation used whatever the project was created with
+ * and the user had no way to tell.
+ *
+ * The slug is left alone for the same reason a rename leaves it alone: it is in
+ * shared URLs and in every storage path the policies resolve a project from.
+ */
+export async function updateProjectSettings(
+  projectId: string,
+  input: ProjectSettingsInput,
+): Promise<ProjectRow> {
+  const supabase = await createClient();
+  if (!supabase) throw new Error("Supabase is not configured.");
+
+  const { data, error } = await supabase
+    .from("projects")
+    .update({
+      name: input.name,
+      description: input.description,
+      framework: input.framework,
+      styling: input.styling,
+      typescript: input.typescript,
+      responsive: input.responsive,
+    })
+    .eq("id", projectId)
+    .is("deleted_at", null)
+    .select("*")
+    .single();
+
+  if (error) {
+    if (error.code === "42501") throw new Error("You do not have permission to change this project.");
+    throw new Error(`Could not save the settings: ${error.message}`);
+  }
+  return data;
+}
+
 /**
  * Deletes a project.
  *

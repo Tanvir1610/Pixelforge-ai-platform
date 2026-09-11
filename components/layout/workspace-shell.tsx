@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronLeft, Github, Rocket } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonClasses } from "@/components/ui/button";
+import { buttonClasses } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
 
@@ -53,11 +53,19 @@ export function WorkspaceShell({ project, status, children }: {
           })}
         </nav>
 
+        {/* A "Push" button sat here with no handler and no GitHub integration
+            behind it — there is none anywhere in the app. A control that cannot
+            do the thing it names is worse than its absence, so until the
+            integration exists it links to where it will be set up. */}
         <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" className="hidden sm:inline-flex">
+          <Link
+            href="/dashboard/settings"
+            title="Connect a repository to push generated code"
+            className={cn(buttonClasses("secondary", "sm"), "hidden sm:inline-flex")}
+          >
             <Github />
-            Push
-          </Button>
+            Connect repo
+          </Link>
           <Link href="/dashboard/deployments" className={buttonClasses("dark", "sm")}>
             <Rocket />
             Deploy

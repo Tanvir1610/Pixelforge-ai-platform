@@ -4,6 +4,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import {
   carryForward, diffFileSet, isSafePath, type DiffResult, type FileContent, type FileRecord,
 } from "@/lib/code/diff";
+import type { ChangeKind } from "@/lib/db/database.types";
 
 /**
  * Code version storage.
@@ -236,6 +237,8 @@ export interface GeneratedFileSummary {
   language: string | null;
   bytes: number;
   content: string | null;
+  /** Whether this version added the file or changed an existing one. */
+  changeKind: ChangeKind;
 }
 
 export interface LatestCodeVersion {
@@ -281,7 +284,7 @@ export async function getLatestVersionFiles(projectId: string): Promise<LatestCo
 
   const { data: files } = await supabase
     .from("generated_files")
-    .select("path, language, bytes, content")
+    .select("path, language, bytes, content, change_kind")
     .eq("code_version_id", latest.id)
     .neq("change_kind", "deleted")
     .order("path");
@@ -297,6 +300,7 @@ export async function getLatestVersionFiles(projectId: string): Promise<LatestCo
       language: file.language,
       bytes: file.bytes,
       content: file.content,
+      changeKind: file.change_kind,
     })),
   };
 }

@@ -34,6 +34,8 @@ export interface AssistantReply {
 
 const MAX_INPUT = 2_000;
 const MAX_HISTORY = 8;
+/** A file sent for review. Enough for a generated component, not a whole app. */
+const MAX_FILE = 12_000;
 
 const SYSTEM = [
   "You are the refinement assistant inside PixelForge AI, a platform that converts Figma designs into code.",
@@ -90,6 +92,14 @@ async function designContext(session: Session, projectId: string): Promise<strin
 export async function askAssistantAction(input: {
   prompt: string;
   history?: { role: "user" | "assistant"; body: string }[];
+  /**
+   * A generated file the question is about.
+   *
+   * The code screen's Explain / Refactor / Optimise / Fix / Generate-tests
+   * buttons had no handler at all — five controls that looked like features and
+   * were decoration. They now ask this, about the file that is open.
+   */
+  file?: { path: string; content: string };
 }): Promise<AssistantReply> {
   const prompt = input.prompt.trim().slice(0, MAX_INPUT);
   if (!prompt) return { ok: false, message: "Ask a question first." };
@@ -161,6 +171,22 @@ export async function askAssistantAction(input: {
       // Figma layer names are not ours; they must never read as instructions.
       untrusted: true,
     },
+    // Generated code carries text that came out of the design file, so it is
+    // data on the same footing as the layer names above.
+    ...(input.file
+      ? [
+          {
+            role: "user" as const,
+            content: [
+              {
+                type: "text" as const,
+                text: `Open file: ${input.file.path}\n\n${input.file.content.slice(0, MAX_FILE)}`,
+              },
+            ],
+            untrusted: true,
+          },
+        ]
+      : []),
     ...(input.history ?? []).slice(-MAX_HISTORY).map((entry) => ({
       role: entry.role,
       content: [{ type: "text" as const, text: entry.body.slice(0, MAX_INPUT) }],

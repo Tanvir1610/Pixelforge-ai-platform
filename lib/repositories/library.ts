@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { Session } from "@/lib/auth/session";
 import type { AssetItem, ComponentEntry, Deployment } from "@/types";
 import { ASSETS, COMPONENT_LIBRARY, DEPLOYMENTS } from "@/lib/data";
+import { getSignedUrls } from "@/lib/storage/signed-urls";
 
 /**
  * Workspace-wide reads for the library screens.
@@ -94,22 +95,36 @@ export async function listAssets(session: Session): Promise<AssetItem[]> {
 
   const { data } = await supabase
     .from("design_assets")
-    .select("id, name, kind, bytes, usage_count, optimised_path")
+    .select("id, name, kind, bytes, usage_count, optimised_path, storage_path")
     .in("project_id", projectIds)
     .order("bytes", { ascending: false })
     .limit(200);
 
-  return (data ?? []).map((asset) => ({
-    id: asset.id,
-    name: asset.name,
-    kind: ASSET_KINDS[asset.kind] ?? "Image",
-    bytes: asset.bytes,
-    uses: asset.usage_count,
-    needsOptimising:
-      asset.optimised_path === null &&
-      asset.bytes > OPTIMISE_THRESHOLD_BYTES &&
-      (asset.kind === "image" || asset.kind === "video"),
-  }));
+  const rows = data ?? [];
+
+  // One batched call rather than one per tile. Every bucket is private, so
+  // without these the grid can only draw a placeholder icon — which is what it
+  // did, for real assets that were sitting in storage the whole time.
+  const signed = await getSignedUrls(
+    "project-assets",
+    rows.map((asset) => asset.optimised_path ?? asset.storage_path).filter(Boolean),
+  );
+
+  return rows.map((asset) => {
+    const path = asset.optimised_path ?? asset.storage_path;
+    return {
+      id: asset.id,
+      name: asset.name,
+      kind: ASSET_KINDS[asset.kind] ?? "Image",
+      bytes: asset.bytes,
+      uses: asset.usage_count,
+      needsOptimising:
+        asset.optimised_path === null &&
+        asset.bytes > OPTIMISE_THRESHOLD_BYTES &&
+        (asset.kind === "image" || asset.kind === "video"),
+      url: (path && signed[path]) ?? null,
+    };
+  });
 }
 
 /**

@@ -81,6 +81,13 @@ export interface AssetItem {
   bytes: number;
   uses: number;
   needsOptimising?: boolean;
+  /**
+   * Short-lived signed URL for the stored object.
+   *
+   * Every bucket is private, so this is the only way the browser sees an asset.
+   * Absent for the demo fixtures, which have no object behind them.
+   */
+  url?: string | null;
 }
 
 export interface ComponentEntry {

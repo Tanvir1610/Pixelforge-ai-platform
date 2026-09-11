@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowUp, Check, Eye, FileCode2, Plus, Undo2, X } from "lucide-react";
+import { ArrowUp, FileCode2, X } from "lucide-react";
 import { AiGlyph } from "@/components/ui/ai-glyph";
 import { Avatar } from "@/components/ui/avatar";
 import { Banner } from "@/components/ui/banner";
@@ -23,9 +23,12 @@ import type { ChatMessage } from "@/types";
 export function ChatPanel({
   live = false,
   history,
+  userInitials = "You",
 }: {
   live?: boolean;
   history?: { role: "user" | "assistant"; body: string }[];
+  /** The signed-in user's initials. Every account used to be shown "TA". */
+  userInitials?: string;
 }) {
   const [messages, setMessages] = React.useState<ChatMessage[]>(() => {
     if (!live) return INITIAL_CHAT;
@@ -96,15 +99,6 @@ export function ChatPanel({
     ]);
   }
 
-  function apply(messageId: string) {
-    setMessages((current) =>
-      current.map((message) =>
-        message.id === messageId
-          ? { ...message, findings: undefined, actions: false, status: "3 changes applied · preview rebuilt" }
-          : message,
-      ),
-    );
-  }
 
   return (
     <>
@@ -113,7 +107,7 @@ export function ChatPanel({
           message.role === "user" ? (
             <div key={message.id} className="flex flex-col gap-1.5">
               <p className="flex items-center gap-2 text-caption font-semibold text-content-muted">
-                <Avatar initials="TA" size="sm" />
+                <Avatar initials={userInitials} size="sm" />
                 You
               </p>
               <p className="self-start rounded-[10px] bg-bg-subtle px-3 py-2.5">{message.body}</p>
@@ -154,15 +148,15 @@ export function ChatPanel({
                 {message.status && (
                   <Banner tone="success" className="mt-2.5">{message.status}</Banner>
                 )}
+                {/* "Apply changes", "Preview" and "Undo" used to sit here.
+                    Apply rewrote the message to say "3 changes applied ·
+                    preview rebuilt" without touching a file; the other two had
+                    no handler. The assistant is advisory by design — it says
+                    what it would change and where — so it says that instead. */}
                 {message.actions && (
-                  <div className="mt-2.5 flex flex-wrap gap-2">
-                    <Button variant="primary" size="sm" onClick={() => apply(message.id)}>
-                      <Check />
-                      Apply changes
-                    </Button>
-                    <Button variant="secondary" size="sm"><Eye />Preview</Button>
-                    <Button variant="ghost" size="sm"><Undo2 />Undo</Button>
-                  </div>
+                  <p className="mt-2.5 text-caption text-content-muted">
+                    Advisory only. Nothing here has been applied to your files.
+                  </p>
                 )}
               </div>
             </div>
@@ -194,15 +188,15 @@ export function ChatPanel({
             className="resize-none bg-transparent text-base outline-none placeholder:text-content-muted sm:text-[13.5px]"
           />
           <div className="flex items-center justify-between gap-2">
+            {/* Was a fixed "Hero.tsx" chip beside a dead "Add context" button,
+                which named a file the project need not have. The context the
+                assistant is actually given is the project's design summary,
+                assembled server-side, so that is what this says. */}
             <span className="flex flex-wrap gap-1.5">
               <span className="inline-flex items-center gap-1.5 rounded-sm bg-bg-subtle px-2 py-1 text-caption text-content-secondary">
                 <FileCode2 aria-hidden className="h-3.5 w-3.5" />
-                Hero.tsx
+                {live ? "Your design + detected components" : "Sample data"}
               </span>
-              <button type="button" className="inline-flex items-center gap-1.5 rounded-sm bg-bg-subtle px-2 py-1 text-caption text-content-secondary hover:text-content">
-                <Plus aria-hidden className="h-3.5 w-3.5" />
-                Add context
-              </button>
             </span>
             <Button type="submit" variant="primary" size="sm" disabled={!draft.trim()}>
               <ArrowUp />

@@ -5,6 +5,9 @@ import { getSession } from "@/lib/auth/session";
 import { listProjects } from "@/lib/repositories/projects";
 import { getComparisons } from "@/lib/repositories/visual";
 import { loadFramePreview } from "@/lib/repositories/design-read";
+import { workspaceCounts } from "@/lib/repositories/design-detail";
+import { getLatestVersionFiles } from "@/lib/repositories/code";
+import { toWorkspaceProject } from "@/lib/presenters/project";
 
 /**
  * Dynamic, because the score belongs to a project. Prerendered from the sample
@@ -26,16 +29,23 @@ export default async function ComparePage({ params }: { params: Promise<{ id: st
   const owned = session && !session.demo ? await listProjects(session, 20) : [];
   const real = isSampleId ? null : owned.find((project) => project.id === id || project.slug === id);
 
-  const [comparisons, frame] = real
-    ? await Promise.all([getComparisons(real.id), loadFramePreview(session!, real.id)])
-    : [[], null];
+  if (!real) {
+    return <CompareWorkspace project={getProject(id)} />;
+  }
+
+  const [comparisons, frame, counts, version] = await Promise.all([
+    getComparisons(real.id),
+    loadFramePreview(session!, real.id),
+    workspaceCounts(session!, real.id),
+    getLatestVersionFiles(real.id),
+  ]);
 
   return (
     <CompareWorkspace
-      project={real ? { ...getProject(id), id: real.id, name: real.name } : getProject(id)}
+      project={toWorkspaceProject(real, { ...counts, generatedFiles: version?.files.length ?? 0 })}
       comparisons={comparisons}
       frame={frame}
-      live={Boolean(real)}
+      live
     />
   );
 }

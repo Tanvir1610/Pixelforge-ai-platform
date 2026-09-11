@@ -19,6 +19,36 @@ import type { Project } from "@/types";
 
 type Mode = "side" | "overlay" | "difference";
 
+/**
+ * Writes the comparison out as CSV.
+ *
+ * Client-side so it needs no route: the figures are already on this screen, and
+ * a report endpoint that re-derives them could disagree with what was shown.
+ */
+function downloadReport(
+  projectName: string,
+  comparison: ComparisonSummary,
+  metrics: { label: string; value: number }[],
+) {
+  const rows = [
+    ["Project", projectName],
+    ["Compared at", new Date(comparison.createdAt).toISOString()],
+    ["Breakpoint", `${comparison.breakpoint}px`],
+    ["Overall similarity", `${comparison.similarity}%`],
+    ["Matched nodes", String(comparison.matchedNodes)],
+    ["Unmatched nodes", String(comparison.unmatchedNodes)],
+    ...metrics.map((metric) => [metric.label, `${metric.value}%`]),
+  ];
+
+  const csv = rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${projectName.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-comparison.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 const OVERLAYS = [
   { id: "o1", label: "Padding 88 → 96px", top: "70px", height: "150px" },
   { id: "o2", label: "Gap 20 → 24px", top: "250px", height: "90px" },
@@ -70,6 +100,14 @@ export function CompareWorkspace({
   // to list rather than the fixture's invented three.
   const differences = live ? [] : fixed ? [] : VISUAL_DIFFERENCES;
 
+  /**
+   * The sample's scripted fix.
+   *
+   * A 1.4-second timer that flipped the score to 99% and cleared the list. On a
+   * real project there is nothing to fix here, because there is nothing
+   * measured: the button is disabled whenever `differences` is empty, which is
+   * always the case for a live project until a comparison exists.
+   */
   function fixDifferences() {
     setFixing(true);
     window.setTimeout(() => {
@@ -79,7 +117,13 @@ export function CompareWorkspace({
   }
 
   return (
-    <WorkspaceShell project={project} status={<Badge>Home</Badge>}>
+    <WorkspaceShell
+      project={project}
+      status={
+        // Was a fixed "Home" badge naming a page no project need have.
+        <Badge tone="neutral">{live ? (latest ? "Compared" : "Not compared") : "Sample project"}</Badge>
+      }
+    >
       <div className="grid h-full min-h-0 lg:grid-cols-[1fr_300px_1fr]">
         <section aria-label="Original Figma design" className="canvas-dots order-2 hidden min-h-0 flex-col gap-3 p-6 lg:order-none lg:flex">
           <h2 className="flex items-center justify-between text-body-sm font-semibold">
@@ -180,18 +224,25 @@ export function CompareWorkspace({
                 </li>
               ))}
             </ul>
-          ) : (
+          ) : hasScore && !live ? (
             <Banner tone="success" className="mt-3.5 w-full">
               All differences fixed. Visual match went from {project.matchScore ?? 97}% to 99%.
             </Banner>
-          )}
+          ) : null}
 
           <div className="mt-4 flex w-full flex-col gap-1.5">
             <Button variant="primary" onClick={fixDifferences} loading={fixing} disabled={differences.length === 0}>
               <Wand2 />
               Fix differences
             </Button>
-            <Button variant="ghost" size="sm">
+            {/* Only offered when there is a comparison to export; it used to
+                render always, with no handler behind it either way. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!latest}
+              onClick={() => latest && downloadReport(project.name, latest, metrics)}
+            >
               <Download />
               Export comparison report
             </Button>

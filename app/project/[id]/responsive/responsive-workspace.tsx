@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Monitor, Plus, Smartphone, Tablet } from "lucide-react";
 import { WorkspaceShell } from "@/components/layout/workspace-shell";
 import { AiGlyph } from "@/components/ui/ai-glyph";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { buttonClasses } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { MiniSite, ScaledSite } from "@/components/preview/mini-site";
 import { DesignPreview } from "@/components/preview/design-preview";
@@ -44,10 +45,41 @@ export function ResponsiveWorkspace({
 }) {
   const [mode, setMode] = React.useState<"single" | "all">("all");
   const [single, setSingle] = React.useState<DeviceKey>("tablet");
-  const shown = mode === "all" ? DEVICES : DEVICES.filter((device) => device.key === single);
+
+  /**
+   * The widths to show.
+   *
+   * DEVICES is a fixed desktop/tablet/mobile list, so a design drawn at 1512,
+   * 834 and 430 was displayed under headings claiming 1440, 768 and 390. A
+   * project's own frame widths are the only honest answer; the fixed list is
+   * for the sample project, which has no frames.
+   */
+  const devices = React.useMemo(() => {
+    if (!live || frames.length === 0) return DEVICES;
+
+    return [...frames]
+      .sort((a, b) => b.width - a.width)
+      .map((frame) => ({
+        key: (frame.width >= 1024 ? "desktop" : frame.width >= 600 ? "tablet" : "mobile") as DeviceKey,
+        label: frame.name,
+        width: Math.round(frame.width),
+      }));
+  }, [live, frames]);
+
+  const shown = mode === "all" ? devices : devices.filter((device) => device.key === single);
 
   return (
-    <WorkspaceShell project={project} status={<Badge>Home</Badge>}>
+    <WorkspaceShell
+      project={project}
+      status={
+        // Was a fixed "Home" badge naming a page no project need have.
+        <Badge tone="neutral">
+          {live
+            ? `${frames.length} ${frames.length === 1 ? "frame" : "frames"}`
+            : "Sample project"}
+        </Badge>
+      }
+    >
       <div className="flex h-full min-h-0 flex-col bg-bg-subtle">
         <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-border bg-bg-surface px-4">
           <Segmented
@@ -65,17 +97,20 @@ export function ResponsiveWorkspace({
                 label="Device"
                 value={single}
                 onChange={setSingle}
-                options={DEVICES.map((device) => ({
+                options={devices.map((device) => ({
                   value: device.key,
                   label: device.label,
                   icon: React.createElement(ICONS[device.key]),
                 }))}
               />
             )}
-            <Button variant="secondary" size="sm">
+            {/* An "Add breakpoint" button sat here with no handler. Breakpoints
+                come from the frames a designer drew, so the way to add one is
+                to import that frame. */}
+            <Link href="/dashboard/import" className={buttonClasses("secondary", "sm")}>
               <Plus />
-              Add breakpoint
-            </Button>
+              Import a frame
+            </Link>
           </div>
         </div>
 
@@ -200,7 +235,8 @@ export function ResponsiveWorkspace({
               </>
             )}
           </div>
-          {!live && <Button variant="secondary" size="sm">Edit rules</Button>}
+          {/* An "Edit rules" button used to sit here for the sample, with
+              nothing behind it. */}
         </aside>
       </div>
     </WorkspaceShell>

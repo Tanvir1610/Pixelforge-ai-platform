@@ -11,61 +11,62 @@ import { EmptyState } from "@/components/ui/empty-state";
 import type { ComponentEntry } from "@/types";
 import { Boxes, Search } from "lucide-react";
 
-type Tab = "mine" | "detected" | "reusable";
+type Tab = "detected" | "reusable";
 
-/** Live preview swatch per component, so the card shows the thing rather than a name. */
-function Preview({ name }: { name: string }) {
-  if (name === "Button")
-    return (
-      <div className="flex gap-2">
-        <Button variant="primary" size="sm">Primary</Button>
-        <Button variant="secondary" size="sm">Secondary</Button>
-      </div>
-    );
-  if (name === "Badge")
-    return (
-      <div className="flex gap-1.5">
-        <Badge tone="success" dot>Live</Badge>
-        <Badge tone="warning">Review</Badge>
-        <Badge>Draft</Badge>
-      </div>
-    );
-  if (name === "Input") return <Input className="w-56" placeholder="you@company.com" aria-label="Preview input" />;
-  if (name === "FeatureCard")
-    return (
-      <div className="w-52 rounded-lg border border-border bg-bg-surface p-4 shadow-sm">
-        <span className="mb-2.5 grid h-7 w-7 place-items-center rounded-md bg-accent-soft text-accent">
-          <Boxes aria-hidden className="h-3.5 w-3.5" />
-        </span>
-        <b className="text-body-sm">Fast by default</b>
-        <p className="mt-1 text-caption text-content-muted">Static output, no runtime.</p>
-      </div>
-    );
-  if (name === "Navbar")
-    return (
-      <div className="flex w-56 items-center justify-between text-body-sm">
-        <span className="flex items-center gap-2 font-display font-bold">
-          <span aria-hidden className="h-5 w-5 rounded-[5px] bg-bg-dark" />
-          Northwind
-        </span>
-        <span className="text-caption text-content-muted">Product Docs</span>
-      </div>
-    );
+/**
+ * The card's preview tile.
+ *
+ * This used to switch on the component's *name* and render one of six hand-drawn
+ * previews — a Button, a Badge, an Input, a FeatureCard, a Navbar reading
+ * "Northwind", and a fallback reading "Ship your ideas". Those names are the
+ * sample project's, so a real component called "ProductTile" or "PriceRow" fell
+ * through to the fallback and advertised somebody else's tagline; a real
+ * component that happened to be called "Navbar" was drawn as Northwind's.
+ *
+ * A detected component has a name, a variant set and an instance count, and no
+ * geometry of its own — instances do. So the tile shows what is actually known.
+ */
+function Preview({ component }: { component: ComponentEntry }) {
+  const initials = component.name
+    .replace(/[^A-Za-z0-9 ]/g, " ")
+    .split(/\s+|(?=[A-Z])/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0].toUpperCase())
+    .join("");
+
   return (
-    <div className="w-56 text-center">
-      <p className="text-h3">Ship your ideas</p>
-      <p className="mt-1 text-caption text-content-muted">Hero · display + body + CTA group</p>
+    <div className="flex flex-col items-center gap-2 px-4 text-center">
+      <span
+        aria-hidden
+        className="grid h-11 w-11 place-items-center rounded-lg bg-bg-surface font-display text-body font-bold text-content-secondary shadow-sm"
+      >
+        {initials || "?"}
+      </span>
+      <span className="text-caption text-content-muted">
+        {component.variants.length > 0
+          ? `${component.variants.length} ${component.variants.length === 1 ? "variant" : "variants"}`
+          : "No variants"}
+        {" · "}
+        {component.usage} {component.usage === 1 ? "instance" : "instances"}
+      </span>
     </div>
   );
 }
 
 export function ComponentLibrary({ components }: { components: ComponentEntry[] }) {
-  const [tab, setTab] = React.useState<Tab>("mine");
+  const [tab, setTab] = React.useState<Tab>("detected");
   const [query, setQuery] = React.useState("");
 
-  const results = components.filter((component) =>
-    component.name.toLowerCase().includes(query.trim().toLowerCase()),
-  );
+  /**
+   * The tabs used to filter nothing: all three showed the same list, and two of
+   * the three counts were the same number. Everything here is detected from a
+   * design — there is no authoring flow — so "reusable" (used more than once)
+   * is the only distinction the data actually supports.
+   */
+  const results = components
+    .filter((component) => (tab === "reusable" ? component.usage > 1 : true))
+    .filter((component) => component.name.toLowerCase().includes(query.trim().toLowerCase()));
 
   return (
     <>
@@ -76,9 +77,8 @@ export function ComponentLibrary({ components }: { components: ComponentEntry[] 
           onChange={setTab}
           className="border-b-0"
           tabs={[
-            { value: "mine", label: "My components", count: components.length },
             { value: "detected", label: "Detected", count: components.length },
-            { value: "reusable", label: "Reusable", count: components.filter((c) => c.usage > 1).length },
+            { value: "reusable", label: "Used more than once", count: components.filter((c) => c.usage > 1).length },
           ]}
         />
         <div className="flex items-center gap-2">
@@ -90,10 +90,12 @@ export function ComponentLibrary({ components }: { components: ComponentEntry[] 
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-          <Button variant="primary" size="sm">
+          {/* "New component" had no handler. Components are detected during
+              import, so that is where one comes from. */}
+          <Link href="/dashboard/import" className={buttonClasses("secondary", "sm")}>
             <Plus />
-            New component
-          </Button>
+            Import a design
+          </Link>
         </div>
       </div>
 
@@ -123,7 +125,7 @@ export function ComponentLibrary({ components }: { components: ComponentEntry[] 
                 className="grid h-[140px] place-items-center border-b border-border bg-bg-subtle"
                 style={{ backgroundImage: "radial-gradient(#DDDFE4 1px, transparent 1px)", backgroundSize: "12px 12px" }}
               >
-                <Preview name={component.name} />
+                <Preview component={component} />
               </div>
               <div className="px-4 py-3">
                 <div className="flex items-center justify-between gap-2">

@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { requireOrgRole } from "@/lib/auth/session";
-import { createProject, renameProject, softDeleteProject } from "@/lib/repositories/projects";
+import {
+  createProject, renameProject, softDeleteProject, updateProjectSettings,
+} from "@/lib/repositories/projects";
 import { z } from "zod";
 import { createProjectSchema, fieldErrors } from "@/lib/validation/schemas";
 
@@ -87,6 +89,58 @@ export async function renameProjectAction(
     return { ok: true, message: `Renamed to ${project.name}.`, nonce };
   } catch (error) {
     return { message: error instanceof Error ? error.message : "Could not rename the project.", nonce };
+  }
+}
+
+const settingsSchema = z.object({
+  projectId: z.string().uuid(),
+  name: z.string().trim().min(1, "Give the project a name.").max(120),
+  description: z.string().trim().max(500).optional(),
+  framework: z.enum(["nextjs", "react", "vue", "html"]),
+  styling: z.enum(["tailwind", "css_modules", "vanilla_css"]),
+  // Checkboxes are absent from the form data when unticked, hence the coercion.
+  typescript: z.coerce.boolean(),
+  responsive: z.coerce.boolean(),
+});
+
+/**
+ * Saves the project settings screen.
+ *
+ * It had no action at all: every control was local state and the save button
+ * showed a success banner without writing anything.
+ */
+export async function updateProjectSettingsAction(
+  _prev: ProjectMutationState,
+  formData: FormData,
+): Promise<ProjectMutationState> {
+  const parsed = settingsSchema.safeParse({
+    projectId: formData.get("projectId"),
+    name: formData.get("name"),
+    description: formData.get("description") ?? undefined,
+    framework: formData.get("framework"),
+    styling: formData.get("styling"),
+    typescript: formData.get("typescript") === "on",
+    responsive: formData.get("responsive") === "on",
+  });
+  if (!parsed.success) return { errors: fieldErrors(parsed.error) };
+
+  try {
+    await requireOrgRole("developer");
+    const project = await updateProjectSettings(parsed.data.projectId, {
+      name: parsed.data.name,
+      description: parsed.data.description?.trim() || null,
+      framework: parsed.data.framework,
+      styling: parsed.data.styling,
+      typescript: parsed.data.typescript,
+      responsive: parsed.data.responsive,
+    });
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/projects");
+    revalidatePath("/dashboard/settings");
+    return { ok: true, message: `Saved. ${project.name} generates as ${project.framework} from now on.` };
+  } catch (error) {
+    return { message: error instanceof Error ? error.message : "Could not save the settings." };
   }
 }
 

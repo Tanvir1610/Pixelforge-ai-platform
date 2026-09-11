@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { requireSession } from "@/lib/auth/session";
 import { listDeployments } from "@/lib/repositories/library";
 import { listProjects } from "@/lib/repositories/projects";
+import { getLatestVersionFiles } from "@/lib/repositories/code";
 import { DeployWorkspace } from "./deploy-workspace";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,8 @@ export default async function DeploymentsPage() {
   // a project called "Northwind marketing" that no real account has.
   const project = projects[0] ?? null;
   const latest = deployments[0] ?? null;
+  // What there is to export, which is the only thing this screen can actually do.
+  const version = project ? await getLatestVersionFiles(project.id) : null;
 
   return (
     <AppShell
@@ -45,7 +48,13 @@ export default async function DeploymentsPage() {
             : "Create a project and generate it before deploying."
         }
       />
-      <DeployWorkspace deployments={deployments} />
+      <DeployWorkspace
+        deployments={deployments}
+        projectId={project?.id ?? null}
+        projectName={project?.name ?? null}
+        generatedFileCount={version?.files.length ?? 0}
+        framework={project?.framework ?? null}
+      />
     </AppShell>
   );
 }

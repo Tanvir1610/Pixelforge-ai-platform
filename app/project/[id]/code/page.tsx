@@ -4,6 +4,8 @@ import { getProject, PROJECTS } from "@/lib/data";
 import { getSession } from "@/lib/auth/session";
 import { listProjects } from "@/lib/repositories/projects";
 import { getLatestVersionFiles, listVersions } from "@/lib/repositories/code";
+import { workspaceCounts } from "@/lib/repositories/design-detail";
+import { toWorkspaceProject } from "@/lib/presenters/project";
 
 /**
  * Dynamic, because it shows the signed-in user's generated code. It was
@@ -25,13 +27,19 @@ export default async function CodePage({ params }: { params: Promise<{ id: strin
   const owned = session && !session.demo ? await listProjects(session, 20) : [];
   const real = isSampleId ? null : owned.find((project) => project.id === id || project.slug === id);
 
-  const [version, versions] = real
-    ? await Promise.all([getLatestVersionFiles(real.id), listVersions(real.id, 20)])
-    : [null, []];
+  if (!real) {
+    return <CodeWorkspace project={getProject(id)} />;
+  }
+
+  const [version, versions, counts] = await Promise.all([
+    getLatestVersionFiles(real.id),
+    listVersions(real.id, 20),
+    workspaceCounts(session!, real.id),
+  ]);
 
   return (
     <CodeWorkspace
-      project={real ? { ...getProject(id), id: real.id, name: real.name } : getProject(id)}
+      project={toWorkspaceProject(real, { ...counts, generatedFiles: version?.files.length ?? 0 })}
       version={version}
       versions={versions}
     />
