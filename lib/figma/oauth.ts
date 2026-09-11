@@ -10,12 +10,14 @@ import { createServiceClient } from "@/lib/supabase/server";
  * and the token column all existed, and nothing had ever written to them. This
  * is the missing half.
  *
- * The app must be PUBLISHED at figma.com/developers/apps, not merely created.
- * Figma changed its developer-platform requirements, and an unpublished app
- * still authenticates at the token endpoint while the authorize page refuses it
- * with "OAuth app with client id ... doesn't exist" — indistinguishable from a
- * wrong client id, and fixed somewhere completely different. /api/health probes
- * the token endpoint to tell the two apart.
+ * The app must be PUBLISHED at figma.com/developers/apps, not merely created:
+ * Figma changed its developer-platform requirements, and apps registered before
+ * that need re-publishing.
+ *
+ * "OAuth app with client id ... doesn't exist" from the authorize page means
+ * exactly what it says — no app with that id is visible to it. Only the
+ * authorize page validates a client id, and it needs a signed-in browser, so
+ * nothing here can check the value before use. Compare it against the console.
  *
  * Same shape as the host-connect flow in lib/deploy/oauth.ts, and it reuses the
  * same one-time `oauth_states` row: without it an attacker can complete a
