@@ -234,6 +234,30 @@ export type DesignAssetRow = {
   created_at: string;
 };
 
+/**
+ * See migration 0020.
+ *
+ * The table landed with the reservation functions and was never registered
+ * here, so nothing could read it through the typed client — which is part of
+ * why the UI went on summing usage_records and ignoring held credits.
+ */
+export type CreditReservationRow = {
+  id: string;
+  organization_id: string;
+  project_id: string | null;
+  reserved: number;
+  /** What it actually cost. Null until the reservation resolves. */
+  settled: number | null;
+  purpose: string;
+  status: "held" | "settled" | "released";
+  release_reason: string | null;
+  created_by: string | null;
+  created_at: string;
+  /** A held reservation past this is treated as abandoned and released. */
+  expires_at: string;
+  resolved_at: string | null;
+};
+
 /** See migration 0021. No client policy: read with the service role only. */
 export type GitHubConnectionRow = {
   id: string;
@@ -913,6 +937,13 @@ export type Database = {
         Row: OauthStateRow;
         Insert: Pick<OauthStateRow, "state" | "organization_id" | "user_id" | "provider"> & Partial<OauthStateRow>;
         Update: Partial<OauthStateRow>;
+        Relationships: [];
+      };
+      credit_reservations: {
+        Row: CreditReservationRow;
+        Insert: Pick<CreditReservationRow, "organization_id" | "reserved" | "purpose"> &
+          Partial<CreditReservationRow>;
+        Update: Partial<CreditReservationRow>;
         Relationships: [];
       };
       github_connections: {

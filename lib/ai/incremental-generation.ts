@@ -5,6 +5,7 @@ import { markRun, markStep } from "@/lib/repositories/generation";
 import { getLatestArtifact, recordModelRun, saveArtifact } from "@/lib/repositories/artifacts";
 import { loadDesignDocument } from "@/lib/repositories/design-read";
 import { writeVersion } from "@/lib/repositories/code";
+import { summariseValidation, validateGeneratedFiles, type FileDiagnostic } from "@/lib/code/validate";
 import { runCodeStep } from "./agents/code-generator";
 import { AnalystError } from "./agents/design-analyst";
 import { bootstrapProviders } from "./bootstrap";
@@ -46,6 +47,14 @@ export interface StepOutcome {
   versionNumber?: number;
   errorCode?: string;
   errorMessage?: string;
+  /**
+   * What the parser made of this step's files.
+   *
+   * Generated code went into a version unread, so a response cut off at the
+   * output limit was stored as if it were finished and discovered by the user
+   * hours later on their own machine.
+   */
+  diagnostics?: FileDiagnostic[];
 }
 
 /**
@@ -188,6 +197,16 @@ export async function generateStep(input: {
       throw new AnalystError("invalid_output", `Step "${step}" produced no files.`);
     }
 
+    // Parsed, not compiled. A full typecheck needs npm and a writable tree;
+    // TypeScript's parser needs neither and catches what actually goes wrong
+    // with model output.
+    //
+    // Reported, never fatal: the tokens are already paid for, and throwing away
+    // a step because one of its files has an unclosed brace would lose the
+    // other nine. The version is written either way and the problems travel
+    // with it, so the user can see which file to look at.
+    const validation = validateGeneratedFiles(result.files);
+
     // Carries forward everything the step did not touch, so this version is the
     // whole project as of now.
     const version = await writeVersion({
@@ -195,7 +214,7 @@ export async function generateStep(input: {
       actorUserId,
       files: result.files.map((file) => ({ path: file.path, content: file.content })),
       label: `Step ${index + 1}: ${step}`.slice(0, 120),
-      summary: `${result.files.length} files from "${step}".`,
+      summary: `${result.files.length} files from "${step}" · ${summariseValidation(validation)}.`,
       generationRunId: runId,
     });
 
@@ -205,7 +224,8 @@ export async function generateStep(input: {
       runId,
       "generate_code",
       done ? "completed" : "running",
-      `${index + 1}/${buildOrder.length} · ${step}`,
+      `${index + 1}/${buildOrder.length} · ${step}` +
+        (validation.ok ? "" : ` · ${validation.badFiles.length} need review`),
     );
 
     if (done) {
@@ -214,7 +234,15 @@ export async function generateStep(input: {
       // of which a serverless request has. Marked cancelled rather than
       // completed: `run_status` has no "skipped", and reporting a build as
       // passed when nothing compiled anything is the worst kind of green tick.
-      await markStep(runId, "build", "cancelled", "Not run — this deployment has no build sandbox");
+      //
+      // The files were parsed, though, which is a real check and is said as
+      // exactly that — not as a build, which it is not.
+      await markStep(
+        runId,
+        "build",
+        "cancelled",
+        `Not built — no sandbox on this deployment. ${summariseValidation(validation)}.`,
+      );
 
       await saveArtifact({
         projectId,
@@ -225,6 +253,10 @@ export async function generateStep(input: {
           versionNumber: version.versionNumber,
           steps: buildOrder,
           built: false,
+          // Recorded so "was this checked at all" has an answer later, and so
+          // the absence of a build is never mistaken for a passing one.
+          validated: true,
+          filesWithProblems: validation.badFiles,
         },
       });
 
@@ -241,6 +273,7 @@ export async function generateStep(input: {
       filesWritten: result.files.length,
       versionId: version.versionId,
       versionNumber: version.versionNumber,
+      diagnostics: validation.diagnostics,
     };
   } catch (error) {
     const code =

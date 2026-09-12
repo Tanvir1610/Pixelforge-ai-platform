@@ -7,6 +7,7 @@ import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { generateStepAction, planProjectAction, startCodegenAction } from "@/lib/actions/generate";
+import type { FileDiagnostic } from "@/lib/code/validate";
 
 /**
  * Runs planning, then code generation one step at a time.
@@ -25,7 +26,7 @@ type Phase =
   | { name: "idle" }
   | { name: "planning" }
   | { name: "generating"; index: number; total: number; label: string; runId: string }
-  | { name: "done"; versionNumber?: number }
+  | { name: "done"; versionNumber?: number; diagnostics: FileDiagnostic[] }
   | { name: "error"; message: string };
 
 export function GenerateButton({ canGenerate }: { canGenerate: boolean }) {
@@ -42,6 +43,9 @@ export function GenerateButton({ canGenerate }: { canGenerate: boolean }) {
 
   async function run() {
     cancelled.current = false;
+    // Collected across steps: each writes its own files, and a problem in step
+    // two is still worth showing when step six is the one that finishes.
+    const problems: FileDiagnostic[] = [];
     setPhase({ name: "planning" });
 
     const planned = await planProjectAction();
@@ -74,8 +78,10 @@ export function GenerateButton({ canGenerate }: { canGenerate: boolean }) {
         return;
       }
 
+      if (outcome.diagnostics?.length) problems.push(...outcome.diagnostics);
+
       if (outcome.done) {
-        setPhase({ name: "done", versionNumber: outcome.versionNumber });
+        setPhase({ name: "done", versionNumber: outcome.versionNumber, diagnostics: problems });
         router.refresh();
         return;
       }
@@ -83,11 +89,40 @@ export function GenerateButton({ canGenerate }: { canGenerate: boolean }) {
   }
 
   if (phase.name === "done") {
+    const bad = [...new Set(phase.diagnostics.map((diagnostic) => diagnostic.path))];
+
     return (
-      <Banner tone="success">
-        Code generated{phase.versionNumber ? ` as version ${phase.versionNumber}` : ""}. It has not been
-        compiled — this deployment has no build sandbox, so treat it as a draft.
-      </Banner>
+      <div className="flex flex-col gap-3">
+        <Banner tone={bad.length > 0 ? "warning" : "success"}>
+          Code generated{phase.versionNumber ? ` as version ${phase.versionNumber}` : ""}. Every file was
+          parsed; nothing was compiled — this deployment has no build sandbox, so treat it as a draft.
+        </Banner>
+
+        {/* Named files, because "some files have problems" sends someone
+            looking through the whole project. */}
+        {bad.length > 0 && (
+          <div className="rounded-[10px] border border-border p-3">
+            <h3 className="mb-1.5 text-body-sm font-medium">
+              {bad.length} {bad.length === 1 ? "file needs" : "files need"} a look before you build
+            </h3>
+            <ul className="flex flex-col gap-1">
+              {phase.diagnostics.slice(0, 8).map((diagnostic, index) => (
+                <li key={`${diagnostic.path}-${index}`} className="text-caption text-content-muted">
+                  <code className="font-mono text-content-secondary">
+                    {diagnostic.path}:{diagnostic.line}
+                  </code>{" "}
+                  {diagnostic.message}
+                </li>
+              ))}
+              {phase.diagnostics.length > 8 && (
+                <li className="text-caption text-content-muted">
+                  and {phase.diagnostics.length - 8} more.
+                </li>
+              )}
+            </ul>
+          </div>
+        )}
+      </div>
     );
   }
 

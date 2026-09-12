@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Boxes, ChevronDown, Folder, Home, Image as ImageIcon, LayoutGrid,
+  Boxes, ChevronDown, Coins, Folder, Home, Image as ImageIcon, LayoutGrid,
   LogOut, Rocket, Settings, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,7 @@ const NAV = [
   { href: "/dashboard/assets", label: "Assets", icon: ImageIcon },
   { href: "/dashboard/analysis", label: "Generations", icon: Sparkles },
   { href: "/dashboard/deployments", label: "Deployments", icon: Rocket },
+  { href: "/dashboard/usage", label: "Usage", icon: Coins },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
@@ -86,12 +87,20 @@ export function Sidebar({ shell }: { shell: ShellData }) {
           <div className="mb-2 flex items-center justify-between gap-2">
             <b className="truncate text-body-sm">{shell.planLabel}</b>
             <span className="shrink-0 text-caption text-content-muted">
-              {shell.creditsUsed.toLocaleString()} / {shell.creditsLimit.toLocaleString()}
+              {Math.round(shell.creditsRemaining).toLocaleString()} left
             </span>
           </div>
           <Progress value={shell.creditsPercentUsed} label="AI credits used" />
           <p className="mb-2.5 mt-2 text-caption text-content-muted">
-            AI credits reset on {shell.creditsResetLabel}.
+            {Math.round(shell.creditsUsed).toLocaleString()} of{" "}
+            {shell.creditsLimit.toLocaleString()} used
+            {/* Named, because the gap it opens between used and remaining
+                otherwise reads as a bug. */}
+            {shell.creditsHeld > 0 && `, ${Math.round(shell.creditsHeld).toLocaleString()} held`}.
+            {" "}
+            <Link href="/dashboard/usage" className="underline hover:text-content">
+              Where it went
+            </Link>
           </p>
           {!shell.planIsPaid && (
             <Link href="/pricing" className="block">

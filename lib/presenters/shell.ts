@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 import { getSession } from "@/lib/auth/session";
 import { getProjectStats } from "@/lib/repositories/projects";
+import { getCreditBalance } from "@/lib/repositories/credits";
 
 /**
  * Everything the dashboard chrome renders.
@@ -28,6 +29,16 @@ export interface ShellData {
   projectCount: number;
   creditsUsed: number;
   creditsLimit: number;
+  /**
+   * Held by work in flight.
+   *
+   * The bar summed usage_records, which counts what has been charged and knows
+   * nothing about what is held — so mid-generation it showed the balance from
+   * before the generation started, and a user acting on it was refused with no
+   * way to tell why.
+   */
+  creditsHeld: number;
+  creditsRemaining: number;
   /** 0–100, clamped: usage can exceed the limit if a run overshoots. */
   creditsPercentUsed: number;
   /** When the monthly usage window rolls over, e.g. "1 October". */
@@ -68,7 +79,10 @@ export const getShellData = cache(async (): Promise<ShellData | null> => {
   const session = await getSession();
   if (!session) return null;
 
-  const stats = await getProjectStats(session);
+  const [stats, balance] = await Promise.all([
+    getProjectStats(session),
+    getCreditBalance(session),
+  ]);
   const plan = session.organization.plan ?? "free";
 
   return {
@@ -79,11 +93,14 @@ export const getShellData = cache(async (): Promise<ShellData | null> => {
     userEmail: session.user.email,
     initials: initialsFrom(session.user.full_name, session.user.email),
     projectCount: stats.projects,
-    creditsUsed: stats.aiCreditsUsed,
-    creditsLimit: stats.aiCreditsLimit,
-    creditsPercentUsed: stats.aiCreditsLimit
-      ? Math.min(100, Math.round((stats.aiCreditsUsed / stats.aiCreditsLimit) * 100))
-      : 0,
+    // From my_credit_balance, which is the same computation reserve_credits
+    // enforces — so the number on screen and the number that decides whether a
+    // generation may start can no longer disagree.
+    creditsUsed: balance.used,
+    creditsLimit: balance.limit,
+    creditsHeld: balance.held,
+    creditsRemaining: balance.remaining,
+    creditsPercentUsed: balance.percentUsed,
     creditsResetLabel: creditsResetLabel(),
     demo: session.demo,
   };

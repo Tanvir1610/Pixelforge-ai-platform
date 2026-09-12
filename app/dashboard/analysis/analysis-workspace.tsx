@@ -74,6 +74,17 @@ export function AnalysisWorkspace({
 
   const usingLive = Boolean(runId) && !demo;
 
+  /**
+   * A real account that has never run anything.
+   *
+   * This used to fall through to the scripted list, which is not merely
+   * animated — its entries carry fixed results: "14 sections", "9 found",
+   * "6 styles", "11 tokens", "23 files", with five of eight already marked
+   * done. So a workspace that had analysed nothing was shown a half-finished
+   * analysis of a design it did not have, and the numbers looked like findings.
+   */
+  const nothingYet = !usingLive && !demo;
+
   const steps: DisplayStep[] = usingLive
     ? live.steps.map((step) => ({
         id: step.id,
@@ -81,15 +92,23 @@ export function AnalysisWorkspace({
         state: toDotState(step.status),
         result: step.result_summary ?? undefined,
       }))
-    : scripted.items.map((item) => ({
-        id: item.id,
-        label: item.label,
-        state: item.state,
-        result: item.result,
-      }));
+    : nothingYet
+      ? ANALYSIS_STEPS.map((item) => ({
+          // The same step names — they are what the pipeline really does — but
+          // every one pending and none carrying a result.
+          id: item.id,
+          label: item.label,
+          state: "pending" as const,
+        }))
+      : scripted.items.map((item) => ({
+          id: item.id,
+          label: item.label,
+          state: item.state,
+          result: item.result,
+        }));
 
-  const percent = usingLive ? live.percent : scripted.percent;
-  const complete = usingLive ? live.complete : scripted.complete;
+  const percent = usingLive ? live.percent : nothingYet ? 0 : scripted.percent;
+  const complete = usingLive ? live.complete : nothingYet ? false : scripted.complete;
   const failed = usingLive && live.failed;
 
   return (
@@ -101,8 +120,18 @@ export function AnalysisWorkspace({
           <span className="font-medium text-content">Analysis</span>
         </nav>
         <div className="flex items-center gap-3">
-          <Badge tone={failed ? "error" : complete ? "success" : "accent"} dot={!failed}>
-            {failed ? "Failed" : complete ? "Analysis complete" : "Step 2 of 3"}
+          {/* Was a fixed "Step 2 of 3" whatever the run was doing. */}
+          <Badge
+            tone={failed ? "error" : complete ? "success" : nothingYet ? "neutral" : "accent"}
+            dot={!failed && !nothingYet}
+          >
+            {failed
+              ? "Failed"
+              : complete
+                ? "Analysis complete"
+                : nothingYet
+                  ? "Not started"
+                  : `${Math.round(percent)}%`}
           </Badge>
           {usingLive && !live.connected && !complete && (
             <Badge tone="neutral" className="hidden sm:inline-flex">Reconnecting</Badge>
@@ -142,8 +171,14 @@ export function AnalysisWorkspace({
         <aside className="flex flex-col border-t border-border bg-bg-surface lg:border-l lg:border-t-0">
           <div className="border-b border-border p-6">
             <h1 className="flex items-center gap-2.5 text-h3">
-              <AiGlyph size="lg" pulse={!complete && !failed} />
-              {failed ? "Analysis failed" : complete ? "Analysis complete" : "Analysing your design…"}
+              <AiGlyph size="lg" pulse={!complete && !failed && !nothingYet} />
+              {failed
+                ? "Analysis failed"
+                : complete
+                  ? "Analysis complete"
+                  : nothingYet
+                    ? "No analysis yet"
+                    : "Analysing your design…"}
             </h1>
             <p className="mt-1 text-body-sm text-content-muted">
               {projectName}
@@ -171,6 +206,11 @@ export function AnalysisWorkspace({
               <Banner tone="error">
                 {live.run?.error_message ?? "The import stopped before it finished."}
               </Banner>
+            ) : nothingYet ? (
+              <Banner tone="info">
+                Nothing has been analysed in this workspace yet. Import a design and run the analyst —
+                the steps above are what it will do, in order.
+              </Banner>
             ) : demo ? (
               <Banner tone="info">
                 <b className="font-semibold">Demo data.</b> Connect Supabase and import a Figma file to see a real run.
@@ -190,6 +230,10 @@ export function AnalysisWorkspace({
             ) : failed ? (
               <Link href="/dashboard/import" className={buttonClasses("secondary", "lg", "w-full")}>
                 Back to import
+              </Link>
+            ) : nothingYet ? (
+              <Link href="/dashboard/understanding" className={buttonClasses("primary", "lg", "w-full")}>
+                Run the analyst
               </Link>
             ) : (
               <div className="flex items-center gap-3 rounded-lg bg-bg-dark p-4 text-white">
