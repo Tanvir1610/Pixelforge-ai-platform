@@ -31,6 +31,19 @@ export interface ModelSpec {
    * models still take them.
    */
   acceptsSampling: boolean;
+  /** Whether `output_config.effort` is accepted. Haiku 4.5 rejects it. */
+  acceptsEffort: boolean;
+  /**
+   * Whether requests opt into server-side refusal fallbacks.
+   *
+   * Opus 5's safety classifiers can decline a request with a normal HTTP 200
+   * and `stop_reason: "refusal"`. Benign work occasionally trips them — a
+   * generated login form is close enough to "security" to be at risk — and
+   * without a fallback that step simply fails. `fallbacks: "default"` re-runs a
+   * declined request on the model Anthropic recommends for that refusal
+   * category, server-side, in the same round trip.
+   */
+  serverFallback: boolean;
 }
 
 export const MODELS: ModelSpec[] = [
@@ -49,6 +62,8 @@ export const MODELS: ModelSpec[] = [
     // The last generation that still accepts temperature. Everything above it
     // rejects sampling parameters outright.
     acceptsSampling: true,
+    acceptsEffort: false,
+    serverFallback: false,
   },
   {
     key: "claude-sonnet-5",
@@ -61,6 +76,8 @@ export const MODELS: ModelSpec[] = [
     outputCostPerMTok: 10,
     tier: "balanced",
     acceptsSampling: false,
+    acceptsEffort: true,
+    serverFallback: false,
   },
   {
     key: "claude-opus-5",
@@ -68,11 +85,13 @@ export const MODELS: ModelSpec[] = [
     displayName: "Claude Opus 5",
     capabilities: ["generate", "stream", "structured", "vision", "analyze"],
     contextWindow: 1_000_000,
-    maxOutputTokens: 64_000,
+    maxOutputTokens: 128_000,
     inputCostPerMTok: 5,
     outputCostPerMTok: 25,
     tier: "frontier",
     acceptsSampling: false,
+    acceptsEffort: true,
+    serverFallback: true,
   },
 ];
 
@@ -86,7 +105,10 @@ export const PURPOSE_TIER: Record<ModelPurpose, ModelSpec["tier"]> = {
   design_analysis: "balanced",
   component_detection: "balanced",
   architecture_planning: "frontier",
-  code_generation: "balanced",
+  // Opus. The generated code is the product: a weaker step here is paid for
+  // again in every repair pass and every file a user has to fix by hand, which
+  // costs more than the price difference per step.
+  code_generation: "frontier",
   code_repair: "balanced",
   visual_qa: "balanced",
   refinement: "fast",

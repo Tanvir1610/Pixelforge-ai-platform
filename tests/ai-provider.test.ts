@@ -158,3 +158,83 @@ describe("AnthropicProvider", () => {
     ).rejects.toThrow(/^anthropic_500$/);
   });
 });
+
+/**
+ * Opus 5 for code generation.
+ *
+ * Three things differ from the Sonnet route it replaced: refusals arrive as a
+ * 200, the request opts into server-side fallbacks, and effort is a parameter
+ * only some models accept. Each is wire-level, so each is asserted on the wire.
+ */
+describe("Opus 5 routing", () => {
+  const OPUS_TOOL_REPLY = {
+    content: [{ type: "tool_use", name: "respond", input: { ok: true } }],
+    stop_reason: "tool_use",
+    model: "claude-opus-5",
+    usage: { input_tokens: 10, output_tokens: 10 },
+  };
+  const ask = { purpose: "code_generation" as const, messages: [{ role: "user" as const, content: [{ type: "text" as const, text: "x" }] }], schema: { type: "object" } };
+
+  it("routes code generation to Opus 5", async () => {
+    const { selectModel } = await import("@/lib/ai/models");
+    expect(selectModel("code_generation", "structured")?.key).toBe("claude-opus-5");
+    expect(selectModel("code_generation", "generate")?.key).toBe("claude-opus-5");
+  });
+
+  it("opts Opus 5 into server-side fallbacks with the matching beta header", async () => {
+    const fetchImpl = vi.fn(async () => reply(OPUS_TOOL_REPLY));
+    const provider = new AnthropicProvider({ apiKey: "k", fetchImpl: fetchImpl as never });
+    await provider.structuredGenerate(ask);
+
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.model).toBe("claude-opus-5");
+    expect(body.fallbacks).toBe("default");
+    expect((init.headers as Record<string, string>)["anthropic-beta"]).toBe("server-side-fallback-2026-07-01");
+    // Removed from this generation; sending it is a 400.
+    expect(body.temperature).toBeUndefined();
+  });
+
+  it("does not send fallbacks to a model that has not opted in", async () => {
+    const fetchImpl = vi.fn(async () => reply(TEXT_REPLY));
+    const provider = new AnthropicProvider({ apiKey: "k", model: "claude-sonnet-5", fetchImpl: fetchImpl as never });
+    await provider.generate({ purpose: "refinement", messages: ask.messages });
+
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string).fallbacks).toBeUndefined();
+    expect((init.headers as Record<string, string>)["anthropic-beta"]).toBeUndefined();
+  });
+
+  it("sends effort only when asked, and only to models that accept it", async () => {
+    const fetchImpl = vi.fn(async () => reply(OPUS_TOOL_REPLY));
+    const provider = new AnthropicProvider({ apiKey: "k", fetchImpl: fetchImpl as never });
+    await provider.structuredGenerate({ ...ask, effort: "medium" });
+    expect(bodyOf(fetchImpl).output_config).toEqual({ effort: "medium" });
+
+    const haiku = vi.fn(async () => reply(TEXT_REPLY));
+    await new AnthropicProvider({ apiKey: "k", model: "claude-haiku-4-5", fetchImpl: haiku as never })
+      .generate({ purpose: "refinement", messages: ask.messages, effort: "medium" });
+    expect(bodyOf(haiku).output_config).toBeUndefined();
+  });
+
+  /** A refusal is a 200 with empty content; reading it as output hides why. */
+  it("raises a refusal as a refusal, not as missing output", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = vi.fn(async () => reply({
+      content: [], stop_reason: "refusal", stop_details: { type: "refusal", category: "cyber" },
+      model: "claude-opus-5", usage: { input_tokens: 0, output_tokens: 0 },
+    }));
+    const provider = new AnthropicProvider({ apiKey: "k", fetchImpl: fetchImpl as never });
+
+    await expect(provider.structuredGenerate(ask)).rejects.toMatchObject({
+      name: "AnthropicRefusalError", category: "cyber",
+    });
+  });
+
+  it("attributes cost to the model that actually served a fallback", async () => {
+    const fetchImpl = vi.fn(async () => reply({ ...OPUS_TOOL_REPLY, model: "claude-sonnet-5" }));
+    const provider = new AnthropicProvider({ apiKey: "k", fetchImpl: fetchImpl as never });
+    const result = await provider.structuredGenerate(ask);
+    expect(result.modelKey).toBe("claude-sonnet-5");
+  });
+});

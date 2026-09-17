@@ -1,7 +1,7 @@
 import type { z } from "zod";
 import { resolveProvider } from "./registry";
-import { AnthropicApiError } from "./providers/anthropic";
-import type { ModelMessage, ModelPurpose, ModelUsage } from "./types";
+import { AnthropicApiError, AnthropicRefusalError } from "./providers/anthropic";
+import type { GenerateOptions, ModelMessage, ModelPurpose, ModelUsage } from "./types";
 
 export interface StructuredCallOptions<T> {
   purpose: ModelPurpose;
@@ -15,6 +15,8 @@ export interface StructuredCallOptions<T> {
    */
   validator: z.ZodType<T, z.ZodTypeDef, unknown>;
   maxOutputTokens?: number;
+  /** Passed through to models that accept it. */
+  effort?: GenerateOptions["effort"];
   /** One repair attempt by default: worth a retry, not worth a loop. */
   maxAttempts?: number;
   signal?: AbortSignal;
@@ -30,7 +32,7 @@ export interface StructuredCallResult<T> {
 
 export class StructuredCallError extends Error {
   constructor(
-    readonly code: "invalid_output" | "provider_error" | "provider_misconfigured",
+    readonly code: "invalid_output" | "provider_error" | "provider_misconfigured" | "refused",
     message: string,
     readonly attempts: number,
     readonly usage: ModelUsage,
@@ -103,6 +105,7 @@ export async function structuredCall<T>(options: StructuredCallOptions<T>): Prom
         messages: attemptMessages,
         schema: jsonSchema,
         maxOutputTokens: options.maxOutputTokens,
+        effort: options.effort,
         signal: options.signal,
       });
       usage = addUsage(usage, result.usage);
@@ -130,6 +133,20 @@ export async function structuredCall<T>(options: StructuredCallOptions<T>): Prom
       // when the API said the model id is unknown, or the key names no
       // workspace, is advice that can only ever waste their time.
       const misconfigured = error instanceof AnthropicApiError && error.isConfiguration;
+
+      // Declined, not broken. Its own code so nobody is told to try again —
+      // and not fed back as a repair attempt, which would ask the same thing
+      // of the same classifier.
+      if (error instanceof AnthropicRefusalError) {
+        throw new StructuredCallError(
+          "refused",
+          error.category ? `declined (${error.category})` : "declined",
+          attempt,
+          usage,
+          provider.key,
+          error.modelKey,
+        );
+      }
 
       throw new StructuredCallError(
         misconfigured ? "provider_misconfigured" : "provider_error",

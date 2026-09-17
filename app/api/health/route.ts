@@ -3,6 +3,7 @@ import { getPublicEnv, SupabaseConfigError } from "@/lib/supabase/env";
 import { isUpiConfigured } from "@/lib/payments/upi";
 import { figmaRedirectUri, figmaScope } from "@/lib/figma/oauth";
 import { githubRedirectUri, githubScope } from "@/lib/github/oauth";
+import { selectModel } from "@/lib/ai/models";
 
 /**
  * Deployment diagnostics.
@@ -207,6 +208,15 @@ export async function GET() {
       problem,
       hint,
       github,
+      // Which model each stage is routed to, read from the same table the
+      // provider uses — so "is code generation on Opus" has a checkable answer.
+      models: {
+        design_analysis: selectModel("design_analysis", "structured")?.key ?? null,
+        architecture_planning: selectModel("architecture_planning", "structured")?.key ?? null,
+        code_generation: selectModel("code_generation", "structured")?.key ?? null,
+        refinement: selectModel("refinement", "generate")?.key ?? null,
+        codegenEffort: process.env.CODEGEN_EFFORT?.trim() || "high (API default)",
+      },
       payments: {
         upi,
         razorpay,

@@ -61,6 +61,11 @@ export interface GenerateOptions {
   /** JSON Schema the response must conform to, for structuredGenerate. */
   schema?: Record<string, unknown>;
   signal?: AbortSignal;
+  /**
+   * Thinking depth and token spend. Omitted means the API default, `high`.
+   * Sent only to models that accept it.
+   */
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
 }
 
 export interface ModelUsage {

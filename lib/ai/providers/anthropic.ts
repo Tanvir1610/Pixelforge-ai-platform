@@ -1,5 +1,5 @@
 import { BaseModelProvider } from "./base";
-import { computeCost, getModel, selectModel } from "../models";
+import { computeCost, getModel, selectModel, type ModelSpec } from "../models";
 import {
   type EmbedResult, type GenerateOptions, type GenerateResult, type ModelCapability,
   type ModelMessage, type StructuredResult,
@@ -16,9 +16,15 @@ interface AnthropicContentBlock {
 interface AnthropicResponse {
   content: AnthropicContentBlock[];
   stop_reason: string | null;
+  /** Populated only on a refusal. Informational: branch on stop_reason. */
+  stop_details?: { type?: string; category?: string | null } | null;
+  /** The model that produced this message, which differs after a fallback. */
   model: string;
   usage: { input_tokens: number; output_tokens: number };
 }
+
+/** Beta header gating `fallbacks: "default"`. The array form uses a different one. */
+const SERVER_FALLBACK_BETA = "server-side-fallback-2026-07-01";
 
 export interface AnthropicOptions {
   apiKey: string;
@@ -63,6 +69,25 @@ export class AnthropicApiError extends Error {
   }
 }
 
+/**
+ * The model declined the request.
+ *
+ * Not an HTTP error: it arrives as a 200 with `stop_reason: "refusal"` and
+ * either no content or a partial one. Reading it as ordinary output turned it
+ * into "the model returned an unusable shape", which sends someone retrying a
+ * request that will be declined again. With server-side fallbacks on, reaching
+ * this means the fallback model declined as well.
+ */
+export class AnthropicRefusalError extends Error {
+  constructor(
+    readonly category: string | null,
+    readonly modelKey: string,
+  ) {
+    super(`anthropic_refusal${category ? `:${category}` : ""}`);
+    this.name = "AnthropicRefusalError";
+  }
+}
+
 /** Pulls the human-readable part out of the API's error envelope. */
 export function describeAnthropicError(status: number, body: string): string {
   try {
@@ -83,7 +108,7 @@ export function describeAnthropicError(status: number, body: string): string {
  * header is sent only when configured — passing an empty one is itself an
  * error.
  */
-function headersFor(apiKey: string): Record<string, string> {
+function headersFor(apiKey: string, betas: string[] = []): Record<string, string> {
   const workspaceId = process.env.ANTHROPIC_WORKSPACE_ID?.trim();
 
   return {
@@ -91,7 +116,32 @@ function headersFor(apiKey: string): Record<string, string> {
     "x-api-key": apiKey,
     "anthropic-version": VERSION,
     ...(workspaceId ? { "anthropic-workspace-id": workspaceId } : {}),
+    ...(betas.length ? { "anthropic-beta": betas.join(",") } : {}),
   };
+}
+
+/**
+ * Request fields that depend on what the chosen model accepts.
+ *
+ * Each is sent only where it is valid, for the same reason `temperature` is:
+ * a parameter a model does not take is rejected with a 400, not ignored.
+ */
+function modelFields(spec: ModelSpec | undefined, options: GenerateOptions) {
+  const betas: string[] = [];
+  const body: Record<string, unknown> = {};
+
+  if (spec?.acceptsSampling) body.temperature = options.temperature ?? 0;
+  if (spec?.acceptsEffort && options.effort) body.output_config = { effort: options.effort };
+
+  if (spec?.serverFallback) {
+    // "default" rather than a pinned model: the right substitute depends on
+    // why the request was declined, and a pinned model is a migration owed
+    // the day it is deprecated.
+    betas.push(SERVER_FALLBACK_BETA);
+    body.fallbacks = "default";
+  }
+
+  return { betas, body };
 }
 
 export class AnthropicProvider extends BaseModelProvider {
@@ -148,17 +198,17 @@ export class AnthropicProvider extends BaseModelProvider {
     const modelKey = this.resolveModelKey(options);
     const spec = getModel(modelKey);
     const started = Date.now();
+    const fields = modelFields(spec, options);
 
     const response = await this.fetchImpl(API, {
       method: "POST",
-      headers: headersFor(this.apiKey),
+      headers: headersFor(this.apiKey, fields.betas),
       body: JSON.stringify({
         model: modelKey,
+        // On models that think by default this caps thinking and the answer
+        // together, so callers size it for both.
         max_tokens: Math.min(options.maxOutputTokens ?? 4096, spec?.maxOutputTokens ?? 8192),
-        // Only where the model still takes it. Sampling parameters were removed
-        // from the current generation and are rejected with a 400 rather than
-        // ignored, so sending one unconditionally failed every call.
-        ...(spec?.acceptsSampling ? { temperature: options.temperature ?? 0 } : {}),
+        ...fields.body,
         system: options.system,
         messages: this.toWireMessages(options.messages),
         ...extra,
@@ -178,9 +228,22 @@ export class AnthropicProvider extends BaseModelProvider {
       throw new AnthropicApiError(response.status, detail);
     }
 
+    const parsed = (await response.json()) as AnthropicResponse;
+
+    // Checked before anything reads `content`, which on a refusal is empty or
+    // partial. Declining is a 200, so nothing above catches it.
+    if (parsed.stop_reason === "refusal") {
+      console.error("[anthropic] refusal", modelKey, parsed.stop_details?.category ?? "uncategorised");
+      throw new AnthropicRefusalError(parsed.stop_details?.category ?? null, parsed.model || modelKey);
+    }
+
     return {
-      response: (await response.json()) as AnthropicResponse,
-      modelKey,
+      response: parsed,
+      // After a server-side fallback the message was produced by a different
+      // model. Attributed to it when it is one this table knows, so the ledger
+      // records what actually ran; otherwise the requested model, whose price
+      // the fallback models share.
+      modelKey: parsed.model && getModel(parsed.model) ? parsed.model : modelKey,
       latencyMs: Date.now() - started,
     };
   }
@@ -247,13 +310,14 @@ export class AnthropicProvider extends BaseModelProvider {
 
     const modelKey = this.resolveModelKey(options);
     const spec = getModel(modelKey);
+    const fields = modelFields(spec, options);
     const response = await this.fetchImpl(API, {
       method: "POST",
-      headers: headersFor(this.apiKey),
+      headers: headersFor(this.apiKey, fields.betas),
       body: JSON.stringify({
         model: modelKey,
         max_tokens: options.maxOutputTokens ?? 4096,
-        ...(spec?.acceptsSampling ? { temperature: options.temperature ?? 0 } : {}),
+        ...fields.body,
         system: options.system,
         messages: this.toWireMessages(options.messages),
         stream: true,

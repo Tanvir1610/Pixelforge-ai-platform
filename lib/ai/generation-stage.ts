@@ -48,6 +48,8 @@ export interface GenerationStageOutcome {
 }
 
 const USER_MESSAGE: Record<string, string> = {
+  refused:
+    "The model declined this request, and the fallback model declined it too. Rewording the design's text or splitting the step usually gets past it; retrying unchanged will not.",
   provider_misconfigured:
     "The AI provider rejected the request as misconfigured, so retrying will not help. Check ANTHROPIC_API_KEY and ANTHROPIC_WORKSPACE_ID — see /api/health.",
   not_configured: "No model provider is configured, so code generation cannot run.",
