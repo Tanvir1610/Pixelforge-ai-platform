@@ -3,6 +3,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { DesignAssetRow, DesignNodeRow, FigmaFrameRow } from "@/lib/db/database.types";
 import type { Session } from "@/lib/auth/session";
+import { currentDesign } from "./current-design";
 
 /**
  * The rest of what an import actually found.
@@ -35,8 +36,12 @@ export async function workspaceCounts(
   const supabase = await createClient();
   if (!supabase) return { pages: 0, components: 0 };
 
+  const design = await currentDesign(supabase, projectId);
+
   const [frames, components] = await Promise.all([
-    supabase.from("figma_frames").select("id", { count: "exact", head: true }).eq("project_id", projectId),
+    design
+      ? supabase.from("figma_frames").select("id", { count: "exact", head: true }).in("figma_page_id", design.pageIds)
+      : Promise.resolve({ count: 0 }),
     supabase.from("design_components").select("id", { count: "exact", head: true }).eq("project_id", projectId),
   ]);
 
@@ -281,10 +286,13 @@ export async function getDesignDetail(
   const supabase = await createClient();
   if (!supabase) return null;
 
+  const design = await currentDesign(supabase, projectId);
+  if (!design) return null;
+
   const { data: frames } = await supabase
     .from("figma_frames")
     .select("id, name, width, height")
-    .eq("project_id", projectId)
+    .in("figma_page_id", design.pageIds)
     .order("width", { ascending: false })
     .overrideTypes<Pick<FigmaFrameRow, "id" | "name" | "width" | "height">[]>();
 

@@ -79,6 +79,14 @@ export async function persistDesignDocument(
 
   if (fileError || !file) throw new Error(`Could not record the Figma file: ${fileError?.message}`);
 
+  // Remove the files this import supersedes. Layers and tokens are replaced
+  // project-wide below, but a previous file's pages and frames hung off its own
+  // row and survived — so a project re-imported from a different file went on
+  // reading the old file's frames wherever "widest frame first" was asked.
+  // Pages and frames cascade; visual comparisons keep their scores and lose
+  // only the link to a frame that no longer exists.
+  await supabase.from("figma_files").delete().eq("project_id", projectId).neq("id", file.id);
+
   await supabase.from("design_nodes").delete().eq("project_id", projectId);
   await supabase.from("design_tokens").delete().eq("project_id", projectId);
 

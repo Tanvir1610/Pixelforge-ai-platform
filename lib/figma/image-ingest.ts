@@ -218,7 +218,8 @@ export async function ingestImage(params: {
     purpose: "design_analysis",
     system: SYSTEM,
     schema: VISION_JSON_SCHEMA,
-    maxOutputTokens: 8_000,
+    // Thinking shares this cap on current models, and a tall screenshot is a long tree.
+    maxOutputTokens: 16_000,
     temperature: 0,
     signal: AbortSignal.timeout(120_000),
     messages: [

@@ -4,7 +4,7 @@ import { compactTokens } from "../context/compact";
 import { architecturePlanSchema, ARCHITECTURE_JSON_SCHEMA, type ArchitecturePlan } from "../planning-schemas";
 import { structuredCall, StructuredCallError } from "../structured";
 import { AnalystError } from "./design-analyst";
-import type { ModelUsage } from "../types";
+import type { ImagePart, ModelUsage } from "../types";
 
 /**
  * The Architecture Planner.
@@ -48,6 +48,12 @@ export interface ArchitectureInput {
   framework: "nextjs" | "react" | "vue" | "html";
   styling: "tailwind" | "css_modules" | "vanilla_css";
   typescript: boolean;
+  /**
+   * The design as images. The build order and the section list are decided
+   * here, and deciding them from a list of frame names meant a section visible
+   * in the design could be planned out of existence before any code was written.
+   */
+  reference?: ImagePart[];
   signal?: AbortSignal;
 }
 
@@ -92,7 +98,9 @@ export async function runArchitecturePlanner(input: ArchitectureInput): Promise<
       system: SYSTEM,
       jsonSchema: ARCHITECTURE_JSON_SCHEMA,
       validator: architecturePlanSchema,
-      maxOutputTokens: 6_000,
+      // Opus 5 thinks by default and this cap covers thinking and the plan
+      // together; 6K could cut the plan off, and every step depends on it.
+      maxOutputTokens: 16_000,
       signal: input.signal,
       messages: [
         {
@@ -111,6 +119,7 @@ export async function runArchitecturePlanner(input: ArchitectureInput): Promise<
           role: "user",
           untrusted: true,
           content: [
+            ...(input.reference ?? []),
             {
               type: "text",
               text:

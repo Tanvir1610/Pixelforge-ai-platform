@@ -109,7 +109,8 @@ export async function runDesignAnalyst(input: AnalystInput): Promise<AnalystResu
       system: SYSTEM,
       jsonSchema: DESIGN_ANALYSIS_JSON_SCHEMA,
       validator: designAnalysisSchema,
-      maxOutputTokens: 8_000,
+      // Thinking shares this cap on current models.
+      maxOutputTokens: 16_000,
       signal,
       messages: [
         {

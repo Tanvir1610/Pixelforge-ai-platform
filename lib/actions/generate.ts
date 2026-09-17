@@ -29,6 +29,9 @@ export interface PlanOutcome {
   message: string;
   runId?: string;
   steps?: string[];
+  /** What the model can see of the design. Shown, so a build without it is not mistaken for one with it. */
+  references?: string;
+  referenceGaps?: string[];
 }
 
 async function currentProject() {
@@ -102,6 +105,8 @@ export async function planProjectAction(): Promise<PlanOutcome> {
     ok: true,
     runId,
     steps: outcome.architecture?.buildOrder ?? [],
+    references: outcome.referenceSummary,
+    referenceGaps: outcome.referenceGaps,
     message: `Planned ${outcome.architecture?.buildOrder.length ?? 0} build steps.`,
   };
 }

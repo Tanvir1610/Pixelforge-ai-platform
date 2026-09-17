@@ -25,7 +25,7 @@ import type { FileDiagnostic } from "@/lib/code/validate";
 type Phase =
   | { name: "idle" }
   | { name: "planning" }
-  | { name: "generating"; index: number; total: number; label: string; runId: string }
+  | { name: "generating"; index: number; total: number; label: string; runId: string; references?: string; gaps: string[] }
   | { name: "done"; versionNumber?: number; diagnostics: FileDiagnostic[] }
   | { name: "error"; message: string };
 
@@ -69,6 +69,8 @@ export function GenerateButton({ canGenerate }: { canGenerate: boolean }) {
         total: started.total,
         label: started.steps?.[index] ?? `Step ${index + 1}`,
         runId: started.runId,
+        references: planned.references,
+        gaps: planned.referenceGaps ?? [],
       });
 
       const outcome = await generateStepAction({ runId: started.runId, index });
@@ -157,6 +159,16 @@ export function GenerateButton({ canGenerate }: { canGenerate: boolean }) {
           <p className="mt-1.5 text-body-sm text-content-muted">
             Step {phase.index + 1} of {phase.total} · {phase.label}
           </p>
+          {/* Said out loud, because a page built without seeing the design
+              and one built from it look the same until they are compared. */}
+          {phase.references && (
+            <p className="mt-1 text-caption text-content-muted">Building from {phase.references}.</p>
+          )}
+          {phase.gaps.length > 0 && (
+            <ul className="mt-1 list-disc pl-4 text-caption text-warning-text">
+              {phase.gaps.slice(0, 3).map((gap) => <li key={gap}>{gap}</li>)}
+            </ul>
+          )}
           <p className="mt-1 text-caption text-content-muted">
             Keep this tab open — each step is a separate request.
           </p>

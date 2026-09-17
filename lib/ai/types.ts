@@ -31,6 +31,12 @@ export type MessageRole = "system" | "user" | "assistant" | "tool";
 export interface TextPart {
   type: "text";
   text: string;
+  /**
+   * Ends a cacheable prefix. Everything up to and including this part is
+   * cached, so content repeated across calls — the design a generation's
+   * every step is built from — is paid for once rather than once per step.
+   */
+  cache?: boolean;
 }
 
 export interface ImagePart {
@@ -38,6 +44,7 @@ export interface ImagePart {
   mediaType: "image/png" | "image/jpeg" | "image/webp";
   /** Base64 payload, or a signed URL the provider is allowed to fetch. */
   data: string;
+  cache?: boolean;
 }
 
 export type ContentPart = TextPart | ImagePart;

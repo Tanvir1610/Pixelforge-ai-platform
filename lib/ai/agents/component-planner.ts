@@ -153,7 +153,8 @@ export async function runComponentPlanner(input: ComponentPlanInput): Promise<Co
       system: SYSTEM,
       jsonSchema: COMPONENT_PLAN_JSON_SCHEMA,
       validator: componentPlanSchema,
-      maxOutputTokens: 8_000,
+      // Thinking shares this cap on current models.
+      maxOutputTokens: 16_000,
       signal: input.signal,
       messages: [
         { role: "user", content: [{ type: "text", text: `ARCHITECTURE\n${architectureText}` }] },

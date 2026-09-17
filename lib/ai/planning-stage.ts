@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { markRun, markStep } from "@/lib/repositories/generation";
 import { recordModelRun, saveArtifact, getLatestArtifact } from "@/lib/repositories/artifacts";
 import { loadDesignDocument } from "@/lib/repositories/design-read";
+import { describeReferences, loadReferenceImages } from "@/lib/design/reference-images";
 import { runArchitecturePlanner } from "./agents/architecture-planner";
 import { runComponentPlanner } from "./agents/component-planner";
 import { AnalystError } from "./agents/design-analyst";
@@ -31,6 +32,10 @@ export interface PlanningStageOutcome {
   ok: boolean;
   architecture?: ArchitecturePlan;
   components?: ComponentPlan;
+  /** What the model was shown of the design, in a line a user can read. */
+  referenceSummary?: string;
+  /** Parts of the design the model could not be shown, and why. */
+  referenceGaps?: string[];
   errorCode?: string;
   errorMessage?: string;
 }
@@ -98,7 +103,11 @@ export async function runPlanningStage(input: PlanningStageInput): Promise<Plann
     }
 
     await markStep(runId, "plan_architecture", "running");
+    // Also resolves them for the generation that follows: a Figma frame is
+    // rendered and stored here the first time, so the build steps only read.
+    const reference = await loadReferenceImages({ organizationId, projectId });
     const architecture = await runArchitecturePlanner({
+      reference: reference.parts,
       analysis,
       document,
       framework: project.framework,
@@ -156,7 +165,13 @@ export async function runPlanningStage(input: PlanningStageInput): Promise<Plann
     );
 
     await markRun(runId, "completed");
-    return { ok: true, architecture: architecture.plan, components: components.plan };
+    return {
+      ok: true,
+      architecture: architecture.plan,
+      components: components.plan,
+      referenceSummary: describeReferences(reference),
+      referenceGaps: reference.gaps,
+    };
   } catch (error) {
     // Whatever went wrong, the claim goes back: the work did not land.
     if (reservation) {

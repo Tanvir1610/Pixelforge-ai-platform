@@ -169,3 +169,59 @@ export function compactTokens(document: DesignDocument): string {
     .map(([category, values]) => `${category.toUpperCase()}: ${values.join(", ")}`)
     .join("\n");
 }
+
+/**
+ * Every piece of copy in the design, in reading order, verbatim.
+ *
+ * The layer summary clips text at 80 characters, which is right for a model
+ * reasoning about structure and wrong for one writing the page: a clipped
+ * headline gets finished by invention, and a paragraph that never arrived gets
+ * replaced with plausible filler. Generated copy that is "close" to the design
+ * is the most visible way a page fails to match it.
+ *
+ * Each line names the section it sits in, so the generator can put it back in
+ * the right place without guessing from the words alone.
+ */
+export function designText(document: DesignDocument, maxTokens = 8_000): { text: string; truncated: boolean } {
+  const lines: string[] = [];
+  let used = 0;
+  let truncated = false;
+
+  for (const frame of document.frames) {
+    lines.push(`[frame] ${frame.name} (${frame.width}x${frame.height})`);
+
+    // Depth-first in child order, which is the order a reader meets the text.
+    const stack: { id: string; section: string | null }[] = [{ id: frame.rootNodeId, section: null }];
+
+    while (stack.length) {
+      const { id, section } = stack.shift()!;
+      const node = document.nodes[id];
+      if (!node) continue;
+
+      // A top-level child of the frame is a section; its name labels the copy inside it.
+      const here = node.depth === 1 ? node.semanticRole ?? node.name : section;
+
+      if (node.textContent?.trim()) {
+        const typography = node.typography
+          ? ` [${node.typography.fontSize}px/${node.typography.fontWeight} ${node.typography.color}]`
+          : "";
+        const line = `- ${here ? `(${here.slice(0, 40)}) ` : ""}${JSON.stringify(node.textContent.trim())}${typography}`;
+        const cost = estimateTokens(line);
+
+        if (used + cost > maxTokens) {
+          truncated = true;
+          break;
+        }
+        lines.push(line);
+        used += cost;
+      }
+
+      stack.unshift(...node.childIds.map((child) => ({ id: child, section: here })));
+    }
+
+    if (truncated) break;
+  }
+
+  if (truncated) lines.push("(further text omitted to fit the context budget)");
+  return { text: lines.join("\n"), truncated };
+}

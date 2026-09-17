@@ -238,3 +238,28 @@ describe("Opus 5 routing", () => {
     expect(result.modelKey).toBe("claude-sonnet-5");
   });
 });
+
+describe("prompt caching", () => {
+  /** The breakpoint is what lets every step after the first read the design from cache. */
+  it("marks a part flagged for caching with an ephemeral breakpoint, and only that part", async () => {
+    const fetchImpl = vi.fn(async () => reply(TEXT_REPLY));
+    const provider = new AnthropicProvider({ apiKey: "k", model: "claude-sonnet-5", fetchImpl: fetchImpl as never });
+
+    await provider.generate({
+      purpose: "refinement",
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image", mediaType: "image/png", data: "AAAA" },
+          { type: "text", text: "design", cache: true },
+        ],
+      }],
+    });
+
+    const [image, text] = bodyOf(fetchImpl).messages[0].content;
+    expect(image.cache_control).toBeUndefined();
+    expect(text.cache_control).toEqual({ type: "ephemeral" });
+    // The flag itself never reaches the wire.
+    expect(text.cache).toBeUndefined();
+  });
+});

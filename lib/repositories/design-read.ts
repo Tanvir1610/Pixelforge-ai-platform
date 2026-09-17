@@ -4,6 +4,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { DesignNodeRow, DesignTokenRow, FigmaFrameRow } from "@/lib/db/database.types";
 import type { DesignDocument, IrNode } from "@/lib/design-ir/types";
 import type { Session } from "@/lib/auth/session";
+import { currentDesign } from "./current-design";
 
 /**
  * Read side of the design domain, used by the analysis and understanding
@@ -23,11 +24,15 @@ export async function getDesignSummary(session: Session, projectId: string): Pro
   const supabase = await createClient();
   if (!supabase) return null;
 
+  // Frames from the latest import only; see current-design.ts.
+  const design = await currentDesign(supabase, projectId);
+  if (!design) return null;
+
   const [frames, nodes, tokens] = await Promise.all([
     supabase
       .from("figma_frames")
       .select("id, name, width, height, breakpoint")
-      .eq("project_id", projectId)
+      .in("figma_page_id", design.pageIds)
       .order("width", { ascending: false }),
     supabase
       .from("design_nodes")
@@ -154,10 +159,13 @@ export async function loadFramePreviews(
   const supabase = await createClient();
   if (!supabase) return [];
 
+  const design = await currentDesign(supabase, projectId);
+  if (!design) return [];
+
   const { data: frames } = await supabase
     .from("figma_frames")
     .select("id, name, width, height")
-    .eq("project_id", projectId)
+    .in("figma_page_id", design.pageIds)
     .order("width", { ascending: false })
     .limit(limit)
     .overrideTypes<Pick<FigmaFrameRow, "id" | "name" | "width" | "height">[]>();
@@ -245,9 +253,14 @@ async function loadOneFrame(
 export async function loadDesignDocument(projectId: string): Promise<DesignDocument | null> {
   const supabase = createServiceClient();
 
+  // The latest import's file and frames. This took any file row with no
+  // ordering, so a re-imported project could be given a stale file key.
+  const design = await currentDesign(supabase, projectId);
+  if (!design) return null;
+
   const [fileResult, framesResult, nodesResult, tokensResult] = await Promise.all([
-    supabase.from("figma_files").select("*").eq("project_id", projectId).limit(1).maybeSingle(),
-    supabase.from("figma_frames").select("*").eq("project_id", projectId).order("width", { ascending: false }),
+    supabase.from("figma_files").select("*").eq("id", design.fileId).maybeSingle(),
+    supabase.from("figma_frames").select("*").in("figma_page_id", design.pageIds).order("width", { ascending: false }),
     supabase.from("design_nodes").select("*").eq("project_id", projectId).order("depth").order("order_index"),
     supabase.from("design_tokens").select("*").eq("project_id", projectId),
   ]);

@@ -173,14 +173,17 @@ export class AnthropicProvider extends BaseModelProvider {
       .filter((message) => message.role !== "system")
       .map((message) => ({
         role: message.role === "assistant" ? "assistant" : "user",
-        content: message.content.map((part) =>
-          part.type === "text"
+        content: message.content.map((part) => ({
+          ...(part.type === "text"
             ? { type: "text" as const, text: message.untrusted ? this.fence(part.text) : part.text }
             : {
                 type: "image" as const,
                 source: { type: "base64" as const, media_type: part.mediaType, data: part.data },
-              },
-        ),
+              }),
+          // A breakpoint, not a flag on the content: the API caches the whole
+          // prefix up to here, so it belongs after the last repeated block.
+          ...(part.cache ? { cache_control: { type: "ephemeral" as const } } : {}),
+        })),
       }));
   }
 

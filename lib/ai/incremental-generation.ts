@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { markRun, markStep } from "@/lib/repositories/generation";
 import { getLatestArtifact, recordModelRun, saveArtifact } from "@/lib/repositories/artifacts";
 import { loadDesignDocument } from "@/lib/repositories/design-read";
+import { loadReferenceImages } from "@/lib/design/reference-images";
 import { writeVersion } from "@/lib/repositories/code";
 import { summariseValidation, validateGeneratedFiles, type FileDiagnostic } from "@/lib/code/validate";
 import { runCodeStep } from "./agents/code-generator";
@@ -164,6 +165,12 @@ export async function generateStep(input: {
     // starting it over. Read back from the version rather than kept in memory.
     const existingFiles = await listCurrentFiles(projectId);
 
+    // What the design looks like. Read every step rather than once, because
+    // each step is its own request with nothing carried between them; the
+    // images come out byte-identical each time, so after the first step the
+    // model reads them from the prompt cache.
+    const reference = await loadReferenceImages({ organizationId, projectId });
+
     let result;
     try {
       result = await runCodeStep({
@@ -172,6 +179,7 @@ export async function generateStep(input: {
         components: plan.components,
         document,
         existingFiles,
+        reference: { parts: reference.parts, gaps: reference.gaps },
       });
     } catch (error) {
       // The step failed. The claim goes back rather than being silently kept.
